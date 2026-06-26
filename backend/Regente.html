@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    :root { --azul:#103A6B; --azulm:#1B5E9B; --verde:#1E7A3C; --rojo:#B02A2A;
+            --amber:#B8860B; --borde:#E2E6EC; --gris:#5A5A5A; --grisc:#F2F4F7; }
+    * { box-sizing:border-box; }
+    body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; margin:0;
+           background:var(--grisc); color:#222; }
+    header { background:var(--azul); color:#fff; padding:14px 18px;
+             display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; }
+    header .t { font-weight:800; font-size:18px; }
+    header .u { font-size:12px; opacity:.9; }
+    main { max-width:760px; margin:0 auto; padding:16px; }
+    .bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+    .bar h2 { font-size:17px; color:var(--azul); margin:0; }
+    button { font-family:inherit; cursor:pointer; border:none; border-radius:8px;
+             font-weight:700; padding:9px 14px; font-size:14px; }
+    .btn-r { background:#fff; color:var(--azul); border:1.5px solid var(--azulm); }
+    .card { background:#fff; border:1px solid var(--borde); border-left:4px solid var(--amber);
+            border-radius:12px; padding:14px; margin-bottom:12px; }
+    .card.cruceNO { border-left-color:var(--rojo); }
+    .top { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+    .guia { font-weight:800; color:var(--azul); font-size:16px; }
+    .pill { font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; }
+    .pill.si { background:#E4F3E9; color:var(--verde); }
+    .pill.no { background:#FBE4E4; color:var(--rojo); }
+    .pill.na { background:var(--grisc); color:var(--gris); }
+    .meta { font-size:13px; color:#333; margin-top:8px; line-height:1.6; }
+    .meta b { color:var(--gris); font-weight:600; }
+    .meta a { color:var(--azulm); }
+    .acc { display:flex; gap:8px; margin-top:12px; }
+    .btn-ok { background:var(--verde); color:#fff; flex:1; }
+    .btn-no { background:#fff; color:var(--rojo); border:1.5px solid var(--rojo); flex:1; }
+    .empty { text-align:center; color:var(--gris); padding:40px 10px; }
+    .warn { background:#FBE4E4; color:var(--rojo); padding:14px; border-radius:10px; font-size:14px; }
+    .loading { text-align:center; color:var(--gris); padding:30px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><div class="t">Quick · Panel del Regente</div><div class="u" id="who">…</div></div>
+    <button class="btn-r" onclick="cargar()">↻ Actualizar</button>
+  </header>
+  <main>
+    <div class="bar"><h2>Transferencias pendientes</h2><span id="conteo" class="u" style="color:#5A5A5A"></span></div>
+    <div id="lista"><div class="loading">Cargando…</div></div>
+  </main>
+
+  <script>
+    function cargar() {
+      document.getElementById('lista').innerHTML = '<div class="loading">Cargando…</div>';
+      google.script.run
+        .withSuccessHandler(render)
+        .withFailureHandler(function (e) {
+          document.getElementById('lista').innerHTML =
+            '<div class="warn">' + e.message + '</div>';
+        })
+        .getPendientes();
+    }
+
+    function render(data) {
+      document.getElementById('who').textContent = 'Sesión: ' + data.email;
+      var p = data.pendientes || [];
+      document.getElementById('conteo').textContent = p.length + ' pendiente(s)';
+      if (!p.length) {
+        document.getElementById('lista').innerHTML =
+          '<div class="empty">✓ No hay transferencias pendientes.</div>';
+        return;
+      }
+      document.getElementById('lista').innerHTML = p.map(fila).join('');
+    }
+
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c]; }); }
+
+    function fila(r) {
+      var cruce = String(r.CruceSmartQuick || '—');
+      var pill = cruce === 'SI' ? '<span class="pill si">✓ En Smart Quick</span>'
+        : cruce === 'NO' ? '<span class="pill no">⚠ NO está en Smart Quick</span>'
+        : '<span class="pill na">cruce no disponible</span>';
+      var foto = r.FotoURL && String(r.FotoURL).indexOf('http') === 0
+        ? '<br><b>Evidencia:</b> <a href="' + esc(r.FotoURL) + '" target="_blank">ver foto</a>' : '';
+      var dir = r.Direccion ? '<br><b>Dirección:</b> ' + esc(r.Direccion) : '';
+      return '<div class="card ' + (cruce === 'NO' ? 'cruceNO' : '') + '" id="c_' + esc(r.ID) + '">' +
+        '<div class="top"><span class="guia">Guía ' + esc(r.NumeroGuia) + '</span>' + pill + '</div>' +
+        '<div class="meta">' +
+          '<b>Tipo:</b> ' + esc(r.Tipo) + ' · <b>Punto:</b> ' + esc(r.PuntoCorto) +
+          '<br><b>Mensajero:</b> ' + esc(r.Nombre) + ' (CC ' + esc(r.Cedula) + ') · <b>Centro:</b> ' + esc(r.Centro) +
+          '<br><b>Registro:</b> ' + esc(r.FechaHoraRegistro) +
+          ' · <b>Llegada:</b> ' + esc(r.HoraLlegada) + ' · <b>Salida:</b> ' + esc(r.HoraSalida) +
+          dir + foto +
+        '</div>' +
+        '<div class="acc">' +
+          '<button class="btn-ok" onclick="aprobar(\'' + esc(r.ID) + '\')">✓ Aprobar</button>' +
+          '<button class="btn-no" onclick="rechazar(\'' + esc(r.ID) + '\')">✕ Rechazar</button>' +
+        '</div></div>';
+    }
+
+    function aprobar(id) {
+      if (!confirm('¿Aprobar esta transferencia? No se podrá modificar después.')) return;
+      decidir(id, 'aprobar', '');
+    }
+    function rechazar(id) {
+      var motivo = prompt('Motivo del rechazo:');
+      if (motivo === null) return;
+      decidir(id, 'rechazar', motivo);
+    }
+    function decidir(id, decision, motivo) {
+      var card = document.getElementById('c_' + id);
+      if (card) card.style.opacity = '.5';
+      google.script.run
+        .withSuccessHandler(function () { if (card) card.remove(); cargar(); })
+        .withFailureHandler(function (e) { alert(e.message); if (card) card.style.opacity = '1'; })
+        .decidir(id, decision, motivo);
+    }
+
+    cargar();
+  </script>
+</body>
+</html>
