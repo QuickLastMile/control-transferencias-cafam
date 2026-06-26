@@ -62,7 +62,9 @@
     }
 
     function render(data) {
-      document.getElementById('who').textContent = 'Sesión: ' + data.email;
+      document.getElementById('who').textContent = 'Sesión: ' + data.email +
+        (data.esAdmin ? ' · admin (todos los puntos)'
+          : (data.puntos && data.puntos.length ? ' · Puntos: ' + data.puntos.join(', ') : ''));
       var p = data.pendientes || [];
       document.getElementById('conteo').textContent = p.length + ' pendiente(s)';
       if (!p.length) {

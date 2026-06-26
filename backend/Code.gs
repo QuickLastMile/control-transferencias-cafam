@@ -22,7 +22,7 @@ const CONFIG = {
 
   // Nombres de las hojas (ajusta si tu pestaña de nómina tiene otro nombre).
   HOJA_COLAB: 'Hoja 1',     // <-- CAMBIA por el nombre real de la pestaña de nómina
-  HOJA_DROG: 'DROGUERIA',
+  HOJA_DROG: 'DROGUERIAS',
   HOJA_MONTADAS: 'montadas',
   HOJA_REGISTRO: 'registro',
   HOJA_BITACORA: 'bitacora',
@@ -31,10 +31,11 @@ const CONFIG = {
   // CAMBIA por una cadena larga y aleatoria propia.
   TOKEN: 'QK-CAMBIA-ESTE-TOKEN-1234567890',
 
-  // Correos Google autorizados a aprobar/rechazar (regentes/admin).
-  REGENTES: [
+  // Correos ADMIN: ven y aprueban TODOS los puntos.
+  // Los regentes de cada punto se autorizan SOLOS con la columna CORREO de la hoja
+  // DROGUERIA (deben ser cuentas Google). Cada regente solo ve los pendientes de su punto.
+  ADMIN: [
     'quick.helpai2026@gmail.com',
-    // 'regente.punto@gmail.com',
   ],
 
   // Carpeta de Drive para las fotos. Deja '' y se crea una automáticamente.
@@ -136,7 +137,7 @@ function buscarCedula(cedula) {
 }
 
 function getPuntos() {
-  const sh = ss().getSheetByName(CONFIG.HOJA_DROG);
+  const sh = hojaDrogueria();
   if (!sh) return [];
   const data = sh.getDataRange().getValues();
   const head = data[0].map((h) => String(h).trim().toUpperCase());
@@ -241,13 +242,45 @@ function guardarFoto(base64, nombre) {
 function regenteEmail() {
   return Session.getActiveUser().getEmail() || '';
 }
-function esRegente() {
-  const e = regenteEmail().toLowerCase();
-  return CONFIG.REGENTES.map((x) => x.toLowerCase()).indexOf(e) >= 0;
+
+/**
+ * Determina qué puede ver/aprobar el usuario logueado.
+ * - ADMIN (CONFIG.ADMIN): todos los puntos.
+ * - Regente: los puntos donde su correo está en la columna CORREO de DROGUERIA.
+ */
+function contextoRegente() {
+  const email = regenteEmail();
+  const eLower = email.toLowerCase();
+  const esAdmin = CONFIG.ADMIN.map((x) => x.toLowerCase()).indexOf(eLower) >= 0;
+  const puntos = [];
+  let encargado = '';
+  const sh = hojaDrogueria();
+  if (sh) {
+    const data = sh.getDataRange().getValues();
+    const head = data[0].map((h) => String(h).trim().toUpperCase());
+    const iCorto = idxAny(head, ['DROGUERIA NOMBRE CORTO', 'NOMBRE CORTO']);
+    const iCorreo = idxAny(head, ['CORREO', 'EMAIL', 'CORREO REGENTE']);
+    const iEnc = idxAny(head, ['ENCARGADO DEL PUNTO', 'REGENTE', 'ENCARGADO']);
+    if (iCorreo >= 0) {
+      for (let r = 1; r < data.length; r++) {
+        const c = String(data[r][iCorreo]).trim().toLowerCase();
+        if (c && c === eLower) {
+          if (iCorto >= 0) puntos.push(String(data[r][iCorto]).trim());
+          if (iEnc >= 0 && !encargado) encargado = String(data[r][iEnc]).trim();
+        }
+      }
+    }
+  }
+  return { email: email, esAdmin: esAdmin, puntos: puntos, encargado: encargado,
+           autorizado: esAdmin || puntos.length > 0 };
 }
 
 function getPendientes() {
-  if (!esRegente()) throw new Error('No autorizado: ' + (regenteEmail() || 'sin sesión'));
+  const ctx = contextoRegente();
+  if (!ctx.autorizado) {
+    throw new Error('No autorizado: ' + (ctx.email || 'sin sesión') +
+      '. Tu correo no está como encargado en la hoja DROGUERIA ni en ADMIN.');
+  }
   const sh = hojaRegistro();
   const data = sh.getDataRange().getValues();
   const head = data[0];
@@ -255,17 +288,18 @@ function getPendientes() {
   for (let r = 1; r < data.length; r++) {
     const obj = {};
     head.forEach((h, i) => (obj[h] = data[r][i]));
-    if (String(obj.Estado).toLowerCase() === 'pendiente') {
-      obj._fila = r + 1;
-      out.push(obj);
-    }
+    if (String(obj.Estado).toLowerCase() !== 'pendiente') continue;
+    if (!ctx.esAdmin && ctx.puntos.indexOf(String(obj.PuntoCorto)) < 0) continue;
+    obj._fila = r + 1;
+    out.push(obj);
   }
-  return { email: regenteEmail(), pendientes: out };
+  return { email: ctx.email, esAdmin: ctx.esAdmin, puntos: ctx.puntos, pendientes: out };
 }
 
 function decidir(id, decision, motivo) {
-  if (!esRegente()) throw new Error('No autorizado.');
-  const email = regenteEmail();
+  const ctx = contextoRegente();
+  if (!ctx.autorizado) throw new Error('No autorizado.');
+  const email = ctx.email;
   const sh = hojaRegistro();
   const data = sh.getDataRange().getValues();
   const head = data[0];
@@ -274,9 +308,14 @@ function decidir(id, decision, motivo) {
   const iMotivo = head.indexOf('MotivoRechazo');
   const iEmail = head.indexOf('RegenteEmail');
   const iFecha = head.indexOf('FechaHoraDecision');
+  const iPunto = head.indexOf('PuntoCorto');
 
   for (let r = 1; r < data.length; r++) {
     if (String(data[r][iID]) === String(id)) {
+      // Un regente solo decide sobre su(s) punto(s); el admin sobre todos.
+      if (!ctx.esAdmin && ctx.puntos.indexOf(String(data[r][iPunto])) < 0) {
+        throw new Error('No autorizado para el punto de este registro.');
+      }
       const estadoActual = String(data[r][iEstado]).toLowerCase();
       // INMUTABILIDAD: si ya fue decidido, no se puede cambiar.
       if (estadoActual !== 'pendiente') {
@@ -299,6 +338,13 @@ function decidir(id, decision, motivo) {
 //  UTILIDADES
 // ----------------------------------------------------------------------------
 function ss() { return SpreadsheetApp.openById(CONFIG.SHEET_ID); }
+
+// Encuentra la hoja de drogerías sin importar si es singular o plural.
+function hojaDrogueria() {
+  return ss().getSheetByName(CONFIG.HOJA_DROG) ||
+         ss().getSheetByName('DROGUERIAS') ||
+         ss().getSheetByName('DROGUERIA');
+}
 
 function requireToken(t) {
   if (String(t || '') !== CONFIG.TOKEN) throw new Error('Token inválido.');

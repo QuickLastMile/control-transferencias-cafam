@@ -42,8 +42,9 @@
 
           <label class="field">
             <span>Punto de venta asignado</span>
-            <input type="text" id="f-punto" list="dl-puntos" placeholder="Escribe para buscar…" autocomplete="off" />
-            <datalist id="dl-puntos"></datalist>
+            <select id="f-punto">
+              <option value="">Cargando puntos…</option>
+            </select>
           </label>
           <div id="punto-status" class="status-line"></div>
 
@@ -79,14 +80,24 @@
 
         <!-- 4. Evidencia -->
         <div class="card">
-          <div class="step-head"><span class="step-num">4</span> Evidencia</div>
-          <button class="btn-ghost" id="btn-gps">📍 Capturar ubicación</button>
+          <div class="step-head"><span class="step-num">4</span> Evidencia fotográfica</div>
+          <p class="muted small">La foto se toma con la cámara en el momento (no se puede adjuntar de la galería). Se marca con fecha, hora, GPS y dirección, y registra tu ubicación.</p>
+
+          <button class="btn-ghost" id="btn-abrir-camara">📷 Tomar foto de evidencia</button>
+
+          <div id="camara" class="camara hidden">
+            <video id="video" autoplay playsinline muted></video>
+            <div class="cam-controls">
+              <button type="button" class="btn-cam" id="btn-voltear">🔄 Voltear</button>
+              <button type="button" class="btn-cap" id="btn-capturar" aria-label="Capturar"></button>
+              <button type="button" class="btn-cam" id="btn-cerrar-cam">✕ Cerrar</button>
+            </div>
+          </div>
+
           <div id="gps-status" class="status-line"></div>
-          <input type="file" id="f-foto" accept="image/*" capture="environment" hidden />
-          <button class="btn-ghost" id="btn-foto" style="margin-top:10px">📷 Tomar foto de evidencia</button>
-          <div class="muted small">La foto queda marcada con dirección, fecha, hora y GPS.</div>
           <canvas id="canvas" class="hidden"></canvas>
           <img id="foto-preview" class="foto-preview hidden" alt="evidencia" />
+          <button type="button" class="btn-ghost hidden" id="btn-repetir" style="margin-top:8px">↺ Repetir foto</button>
         </div>
 
         <button class="btn-primary" id="btn-finalizar">✓ Finalizar y enviar</button>

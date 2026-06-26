@@ -6,7 +6,6 @@
 const CFG = window.QK_CONFIG || {};
 const $ = (s) => document.querySelector(s);
 
-// Estado del formulario
 const estado = {
   emp: null,          // { cedula, nombre, centro }
   puntos: [],         // [{corto, plataforma}]
@@ -16,6 +15,8 @@ const estado = {
   gps: null,          // { lat, lng, acc }
   direccion: "",
   fotoBase64: "",
+  stream: null,       // MediaStream activo
+  facing: "environment",
 };
 
 // ---- Utilidades ----
@@ -30,18 +31,18 @@ function horaAhora() {
 }
 function setStatus(sel, msg, tipo) {
   const e = $(sel);
+  if (!e) return;
   e.className = "status-line " + (tipo || "");
   e.innerHTML = msg;
 }
 
-// ---- Llamadas al backend ----
+// ---- Backend ----
 async function apiGet(params) {
   const qs = new URLSearchParams(Object.assign({ token: CFG.TOKEN }, params)).toString();
   const res = await fetch(CFG.API_URL + "?" + qs);
   return res.json();
 }
 async function apiPost(obj) {
-  // text/plain evita el preflight CORS de Apps Script
   const res = await fetch(CFG.API_URL, {
     method: "POST",
     body: JSON.stringify(Object.assign({ token: CFG.TOKEN }, obj)),
@@ -73,50 +74,102 @@ async function buscarCedula() {
 }
 
 // ============================================================
-// 2. PUNTOS DE VENTA
+// 2. PUNTOS DE VENTA (lista desplegable, en vivo desde DROGUERIA)
 // ============================================================
 async function cargarPuntos() {
+  const sel = $("#f-punto");
   try {
     const r = await apiGet({ action: "puntos" });
-    if (r.ok && r.puntos) {
+    if (r.ok && r.puntos && r.puntos.length) {
       estado.puntos = r.puntos;
-      $("#dl-puntos").innerHTML = r.puntos
-        .map((p) => `<option value="${p.corto}">${p.plataforma || ""}</option>`)
-        .join("");
+      sel.innerHTML = '<option value="">Selecciona…</option>' +
+        r.puntos.map((p) => `<option value="${p.corto}">${p.corto}</option>`).join("");
+    } else {
+      sel.innerHTML = '<option value="">(sin puntos)</option>';
     }
-  } catch (e) { /* sin puntos, el campo queda libre */ }
+  } catch (e) {
+    sel.innerHTML = '<option value="">(error al cargar)</option>';
+  }
 }
 function puntoSeleccionado() {
   const v = $("#f-punto").value.trim();
-  const p = estado.puntos.find((x) => x.corto.toLowerCase() === v.toLowerCase());
-  return p || (v ? { corto: v, plataforma: "" } : null);
+  if (!v) return null;
+  return estado.puntos.find((x) => x.corto === v) || { corto: v, plataforma: "" };
 }
 
 // ============================================================
-// 3. MARCACIONES
+// 3. MARCACIONES (únicas: una sola vez)
 // ============================================================
 function marcarLlegada() {
+  if (estado.horaLlegada) return;
   estado.horaLlegada = horaAhora();
   $("#r-llegada").textContent = estado.horaLlegada;
+  bloquearMarca("#btn-llegada");
 }
 function marcarSalida() {
+  if (estado.horaSalida) return;
   estado.horaSalida = horaAhora();
   $("#r-salida").textContent = estado.horaSalida;
+  bloquearMarca("#btn-salida");
+}
+function bloquearMarca(sel) {
+  const b = $(sel);
+  b.disabled = true;
+  b.classList.add("marcado");
+  b.textContent = "✓ Marcado";
 }
 
 // ============================================================
-// 4. GPS + DIRECCIÓN + FOTO CON MARCA DE AGUA
+// 4. CÁMARA EN VIVO + GPS + MARCA DE AGUA EN ESQUINA
 // ============================================================
-function capturarGPS() {
+async function abrirCamara() {
+  const cam = $("#camara");
+  cam.classList.remove("hidden");
+  $("#btn-abrir-camara").classList.add("hidden");
+  await iniciarStream();
+  capturarUbicacion(); // GPS automático al abrir la cámara
+}
+
+async function iniciarStream() {
+  detenerStream();
+  try {
+    estado.stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: estado.facing } },
+      audio: false,
+    });
+    const v = $("#video");
+    v.srcObject = estado.stream;
+    await v.play().catch(() => {});
+  } catch (e) {
+    setStatus("#gps-status", "No se pudo abrir la cámara: " + e.message + ". Da permiso de cámara.", "err");
+  }
+}
+function detenerStream() {
+  if (estado.stream) {
+    estado.stream.getTracks().forEach((t) => t.stop());
+    estado.stream = null;
+  }
+}
+function voltearCamara() {
+  estado.facing = estado.facing === "environment" ? "user" : "environment";
+  iniciarStream();
+}
+function cerrarCamara() {
+  detenerStream();
+  $("#camara").classList.add("hidden");
+  if (!estado.fotoBase64) $("#btn-abrir-camara").classList.remove("hidden");
+}
+
+function capturarUbicacion() {
   if (!navigator.geolocation) { setStatus("#gps-status", "Sin soporte de GPS.", "err"); return; }
   setStatus("#gps-status", "Obteniendo ubicación…", "info");
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
       const { latitude, longitude, accuracy } = pos.coords;
       estado.gps = { lat: +latitude.toFixed(6), lng: +longitude.toFixed(6), acc: Math.round(accuracy) };
-      setStatus("#gps-status", `✓ ${estado.gps.lat}, ${estado.gps.lng} (±${estado.gps.acc} m). Buscando dirección…`, "ok");
+      setStatus("#gps-status", `📍 ${estado.gps.lat}, ${estado.gps.lng} (±${estado.gps.acc} m)`, "ok");
       estado.direccion = await reverseGeocode(estado.gps.lat, estado.gps.lng);
-      setStatus("#gps-status", `✓ ${estado.direccion || (estado.gps.lat + ", " + estado.gps.lng)}`, "ok");
+      if (estado.direccion) setStatus("#gps-status", `📍 ${estado.direccion}`, "ok");
     },
     () => setStatus("#gps-status", "No se pudo obtener la ubicación. Activa el GPS y los permisos.", "err"),
     { enableHighAccuracy: true, timeout: 12000 }
@@ -132,59 +185,65 @@ async function reverseGeocode(lat, lng) {
   } catch (e) { return ""; }
 }
 
-function tomarFoto() {
-  if (!estado.gps) { toast("Captura la ubicación primero.", "err"); return; }
-  $("#f-foto").click();
-}
-
-function procesarFoto(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const img = new Image();
-  const reader = new FileReader();
-  reader.onload = () => { img.onload = () => dibujarMarca(img); img.src = reader.result; };
-  reader.readAsDataURL(file);
-}
-
-function dibujarMarca(img) {
+function capturarFoto() {
+  const v = $("#video");
+  if (!v.videoWidth) { toast("La cámara aún no está lista.", "err"); return; }
   const canvas = $("#canvas");
   const maxW = 1280;
-  const escala = Math.min(1, maxW / img.width);
-  canvas.width = img.width * escala;
-  canvas.height = img.height * escala;
+  const escala = Math.min(1, maxW / v.videoWidth);
+  canvas.width = v.videoWidth * escala;
+  canvas.height = v.videoHeight * escala;
   const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+  marcaEsquina(ctx, canvas);
 
-  // Texto de la marca
+  estado.fotoBase64 = canvas.toDataURL("image/jpeg", 0.72);
+  $("#foto-preview").src = estado.fotoBase64;
+  $("#foto-preview").classList.remove("hidden");
+  $("#btn-repetir").classList.remove("hidden");
+  cerrarCamara();
+}
+
+// Marca de agua compacta en la esquina inferior izquierda.
+function marcaEsquina(ctx, canvas) {
   const ahora = new Date();
   const fecha = ahora.toLocaleString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
   const lineas = [
-    "Quick · Evidencia de transferencia",
-    "Fecha/hora: " + fecha,
+    "Quick · " + fecha,
     "GPS: " + (estado.gps ? estado.gps.lat + ", " + estado.gps.lng : "—"),
     "Dir: " + (estado.direccion || "no disponible"),
   ];
+  const fs = Math.max(12, Math.round(canvas.width / 52));
+  ctx.font = fs + "px Arial";
+  const pad = fs * 0.5;
+  const lh = fs * 1.3;
+  const maxW = canvas.width * 0.62;
+  const wrap = wrapLines(ctx, lineas, maxW - pad * 2);
+  const boxW = Math.min(maxW, Math.max.apply(null, wrap.map((l) => ctx.measureText(l).width)) + pad * 2);
+  const boxH = wrap.length * lh + pad * 1.2;
+  const x = pad, y = canvas.height - boxH - pad;
 
-  const fontSize = Math.max(14, Math.round(canvas.width / 45));
-  ctx.font = fontSize + "px Arial";
-  const pad = fontSize * 0.6;
-  const lh = fontSize * 1.35;
-  // Recuadro de fondo
-  const wrap = wrapLines(ctx, lineas, canvas.width - pad * 2);
-  const boxH = wrap.length * lh + pad * 1.5;
-  ctx.fillStyle = "rgba(16,58,107,0.72)";
-  ctx.fillRect(0, canvas.height - boxH, canvas.width, boxH);
-  // Texto
+  ctx.fillStyle = "rgba(16,58,107,0.74)";
+  roundRect(ctx, x, y, boxW, boxH, fs * 0.4);
+  ctx.fill();
+  // franja lateral de acento
+  ctx.fillStyle = "#4F9BE0";
+  ctx.fillRect(x, y, fs * 0.22, boxH);
+
   ctx.fillStyle = "#fff";
   ctx.textBaseline = "top";
-  let y = canvas.height - boxH + pad * 0.75;
-  wrap.forEach((ln) => { ctx.fillText(ln, pad, y); y += lh; });
+  let ty = y + pad * 0.6;
+  wrap.forEach((ln) => { ctx.fillText(ln, x + pad + fs * 0.3, ty); ty += lh; });
+}
 
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
-  estado.fotoBase64 = dataUrl;
-  const prev = $("#foto-preview");
-  prev.src = dataUrl;
-  prev.classList.remove("hidden");
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 function wrapLines(ctx, lineas, maxW) {
@@ -200,6 +259,13 @@ function wrapLines(ctx, lineas, maxW) {
     if (cur) out.push(cur);
   });
   return out;
+}
+
+function repetirFoto() {
+  estado.fotoBase64 = "";
+  $("#foto-preview").classList.add("hidden");
+  $("#btn-repetir").classList.add("hidden");
+  abrirCamara();
 }
 
 // ============================================================
@@ -238,9 +304,9 @@ async function finalizar() {
     const cruceMsg = r.cruce === "NO"
       ? " ⚠️ La guía NO aparece en Smart Quick — el regente lo revisará."
       : "";
-    setStatus("#final-status", `✓ Registrado (${r.id}). Queda pendiente de aprobación.` + cruceMsg, "ok");
+    setStatus("#final-status", `✓ Registrado (${r.id}). Pendiente de aprobación.` + cruceMsg, "ok");
     toast("✓ Transferencia enviada.", "ok");
-    setTimeout(resetForm, 2500);
+    setTimeout(resetForm, 2800);
   } catch (e) {
     setStatus("#final-status", "Error de conexión con el servidor.", "err");
     btn.disabled = false;
@@ -248,12 +314,21 @@ async function finalizar() {
 }
 
 function resetForm() {
+  detenerStream();
   estado.tipo = ""; estado.horaLlegada = ""; estado.horaSalida = "";
   estado.gps = null; estado.direccion = ""; estado.fotoBase64 = "";
-  ["#f-punto", "#f-guia"].forEach((s) => ($(s).value = ""));
+  $("#f-punto").value = ""; $("#f-guia").value = "";
   $("#r-llegada").textContent = "—"; $("#r-salida").textContent = "—";
+  ["#btn-llegada", "#btn-salida"].forEach((s) => {
+    const b = $(s); b.disabled = false; b.classList.remove("marcado");
+  });
+  $("#btn-llegada").textContent = "🟢 Llegada";
+  $("#btn-salida").textContent = "🔴 Salida";
   $("#gps-status").textContent = ""; $("#final-status").textContent = "";
   $("#foto-preview").classList.add("hidden");
+  $("#btn-repetir").classList.add("hidden");
+  $("#camara").classList.add("hidden");
+  $("#btn-abrir-camara").classList.remove("hidden");
   document.querySelectorAll(".toggle").forEach((b) => b.classList.remove("active"));
   $("#btn-finalizar").disabled = false;
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -266,9 +341,11 @@ $("#btn-buscar").addEventListener("click", buscarCedula);
 $("#f-cedula").addEventListener("keydown", (e) => { if (e.key === "Enter") buscarCedula(); });
 $("#btn-llegada").addEventListener("click", marcarLlegada);
 $("#btn-salida").addEventListener("click", marcarSalida);
-$("#btn-gps").addEventListener("click", capturarGPS);
-$("#btn-foto").addEventListener("click", tomarFoto);
-$("#f-foto").addEventListener("change", procesarFoto);
+$("#btn-abrir-camara").addEventListener("click", abrirCamara);
+$("#btn-voltear").addEventListener("click", voltearCamara);
+$("#btn-capturar").addEventListener("click", capturarFoto);
+$("#btn-cerrar-cam").addEventListener("click", cerrarCamara);
+$("#btn-repetir").addEventListener("click", repetirFoto);
 $("#btn-finalizar").addEventListener("click", finalizar);
 document.querySelectorAll(".toggle").forEach((b) =>
   b.addEventListener("click", () => {
@@ -278,7 +355,6 @@ document.querySelectorAll(".toggle").forEach((b) =>
   })
 );
 
-// Aviso si falta configurar
 if (!CFG.API_URL || /CAMBIA/.test(CFG.TOKEN || "")) {
   setTimeout(() => toast("⚙️ Falta configurar el TOKEN en assets/config.js", "err"), 600);
 }

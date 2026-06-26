@@ -77,12 +77,29 @@ main { max-width: 560px; margin: 0 auto; padding: 16px; }
 /* Fields */
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
 .field span { font-size: 12px; font-weight: 600; color: var(--gris); }
-input[type=text], input[type=password], textarea {
+input[type=text], input[type=password], textarea, select {
   width: 100%; padding: 12px; font-size: 16px;
   border: 1px solid var(--borde); border-radius: 10px; background: #fff;
   font-family: inherit; resize: vertical;
 }
-input:focus, textarea:focus { outline: 2px solid var(--azul-claro); border-color: var(--azul-med); }
+select { appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%231B5E9B' stroke-width='3'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--azul-claro); border-color: var(--azul-med); }
+
+/* Marcación bloqueada */
+.btn-marca.marcado { background: var(--verde-bg); color: var(--verde); border-color: var(--verde); cursor: default; }
+.btn-marca:disabled { opacity: 1; }
+
+/* Cámara en vivo */
+.camara { margin-top: 10px; background: #000; border-radius: 12px; overflow: hidden; }
+.camara video { width: 100%; display: block; max-height: 60vh; object-fit: cover; background: #000; }
+.cam-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: #0d0d0d; }
+.btn-cam { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.3);
+  padding: 9px 12px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.btn-cap { width: 58px; height: 58px; border-radius: 50%; background: #fff; border: 4px solid #4F9BE0; cursor: pointer; }
+.btn-cap:active { transform: scale(.94); }
+.camara .status-line { color: #fff; padding: 0 12px 10px; }
 
 /* Botones */
 .btn-primary, .btn-ghost, .btn-danger {
