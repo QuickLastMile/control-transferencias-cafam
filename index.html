@@ -4,130 +4,100 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#103A6B" />
-  <title>Quick · Control de Transferencias Cafam</title>
+  <title>Quick · Legalizar Transferencia · Cafam</title>
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <span class="logo">Quick</span>
-      <span class="brand-sub">Control de Transferencias · Cafam</span>
+      <span class="brand-sub">Legalización de Transferencias · Cafam</span>
     </div>
-    <span class="demo-badge">DEMO</span>
   </header>
 
-  <nav class="tabs">
-    <button class="tab active" data-view="mensajero">📦 Mensajero</button>
-    <button class="tab" data-view="tablero">📊 Tablero</button>
-    <button class="tab" data-view="datos">⚙️ Datos</button>
-  </nav>
-
-  <main id="app"></main>
-
-  <!-- Plantillas de vistas -->
-  <template id="view-mensajero">
+  <main id="app">
     <section class="view">
       <h2>Legalizar transferencia</h2>
-      <p class="muted">Cada paso queda registrado con evidencia que el mensajero no puede alterar.</p>
+      <p class="muted">Diligencia todos los pasos. La hora y la ubicación quedan registradas como evidencia.</p>
 
+      <!-- 1. Identificación -->
       <div class="card">
+        <div class="step-head"><span class="step-num">1</span> Identificación del mensajero</div>
         <label class="field">
-          <span>Número de guía</span>
-          <input type="text" id="f-guia" inputmode="numeric" placeholder="Ej: 4954425" autocomplete="off" />
+          <span>Número de cédula</span>
+          <input type="text" id="f-cedula" inputmode="numeric" placeholder="Ej: 71316103" autocomplete="off" />
         </label>
-        <button class="btn-ghost" id="btn-validar">Validar guía contra la plataforma</button>
-        <div id="guia-status" class="status-line"></div>
+        <button class="btn-ghost" id="btn-buscar">🔎 Buscar</button>
+        <div id="cedula-status" class="status-line"></div>
+        <div id="emp-box" class="hidden">
+          <div class="kv"><span>Nombre</span><strong id="r-nombre">—</strong></div>
+          <div class="kv"><span>Centro</span><strong id="r-centro">—</strong></div>
+        </div>
       </div>
 
-      <div id="form-resto" class="hidden">
+      <!-- 2. Datos de la transferencia -->
+      <div id="bloque-datos" class="hidden">
         <div class="card">
-          <div class="kv"><span>Origen</span><strong id="r-origen">—</strong></div>
-          <div class="kv"><span>Destino</span><strong id="r-destino">—</strong></div>
+          <div class="step-head"><span class="step-num">2</span> Datos de la transferencia</div>
+
+          <label class="field">
+            <span>Punto de venta asignado</span>
+            <input type="text" id="f-punto" list="dl-puntos" placeholder="Escribe para buscar…" autocomplete="off" />
+            <datalist id="dl-puntos"></datalist>
+          </label>
+          <div id="punto-status" class="status-line"></div>
+
+          <label class="field">
+            <span>Número de guía</span>
+            <input type="text" id="f-guia" inputmode="numeric" placeholder="Ej: 4955188" autocomplete="off" />
+          </label>
+          <div class="warn-box">
+            ⚠️ <b>Verifica el número de guía antes de continuar.</b> Si lo digitas mal,
+            la transferencia <b>no se podrá cruzar con la plataforma Smart Quick y no será
+            reconocida ni pagada</b>. El número de guía es <b>obligatorio</b> para legalizar.
+          </div>
+
+          <span class="field-label">Tipo de movimiento</span>
+          <div class="toggle-group" id="tipo-group">
+            <button type="button" class="toggle" data-tipo="Recogida">📥 Recogida</button>
+            <button type="button" class="toggle" data-tipo="Entrega">📤 Entrega</button>
+          </div>
         </div>
 
+        <!-- 3. Marcaciones -->
         <div class="card">
-          <div class="step-head"><span class="step-num">1</span> Ubicación (GPS)</div>
+          <div class="step-head"><span class="step-num">3</span> Marcaciones</div>
+          <div class="marca-row">
+            <button class="btn-marca" id="btn-llegada">🟢 Llegada</button>
+            <strong id="r-llegada" class="marca-hora">—</strong>
+          </div>
+          <div class="marca-row">
+            <button class="btn-marca" id="btn-salida">🔴 Salida</button>
+            <strong id="r-salida" class="marca-hora">—</strong>
+          </div>
+        </div>
+
+        <!-- 4. Evidencia -->
+        <div class="card">
+          <div class="step-head"><span class="step-num">4</span> Evidencia</div>
           <button class="btn-ghost" id="btn-gps">📍 Capturar ubicación</button>
           <div id="gps-status" class="status-line"></div>
-        </div>
-
-        <div class="card">
-          <div class="step-head"><span class="step-num">2</span> Foto de evidencia</div>
           <input type="file" id="f-foto" accept="image/*" capture="environment" hidden />
-          <button class="btn-ghost" id="btn-foto">📷 Tomar foto de la guía/paquete</button>
+          <button class="btn-ghost" id="btn-foto" style="margin-top:10px">📷 Tomar foto de evidencia</button>
+          <div class="muted small">La foto queda marcada con dirección, fecha, hora y GPS.</div>
+          <canvas id="canvas" class="hidden"></canvas>
           <img id="foto-preview" class="foto-preview hidden" alt="evidencia" />
         </div>
 
-        <div class="card">
-          <div class="step-head"><span class="step-num">3</span> Confirmación del punto</div>
-          <p class="muted small">El funcionario del punto ingresa su PIN. Reemplaza al sello físico.</p>
-          <label class="field">
-            <span>PIN del punto destino</span>
-            <input type="password" id="f-pin" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off" />
-          </label>
-          <div id="pin-status" class="status-line"></div>
-        </div>
-
-        <div class="card subtle">
-          <div class="kv"><span>Hora registrada (servidor)</span><strong id="r-hora">se asigna al confirmar</strong></div>
-        </div>
-
-        <button class="btn-primary" id="btn-legalizar">Legalizar transferencia</button>
+        <button class="btn-primary" id="btn-finalizar">✓ Finalizar y enviar</button>
+        <div id="final-status" class="status-line" style="text-align:center"></div>
       </div>
     </section>
-  </template>
-
-  <template id="view-tablero">
-    <section class="view">
-      <h2>Tablero de conciliación</h2>
-      <p class="muted">Plataforma vs legalizado, en tiempo real.</p>
-      <div class="kpis" id="kpis"></div>
-      <div class="filters">
-        <button class="chip active" data-filter="todos">Todos</button>
-        <button class="chip" data-filter="ok">✓ Conciliados</button>
-        <button class="chip" data-filter="pendiente">⏳ Pendientes</button>
-        <button class="chip" data-filter="alerta">⚠ Alertas</button>
-      </div>
-      <div id="tabla-conciliacion"></div>
-    </section>
-  </template>
-
-  <template id="view-datos">
-    <section class="view">
-      <h2>Datos de la plataforma</h2>
-      <p class="muted">La plataforma de Cafam no tiene API. Aquí se carga el export (CSV/Excel) o se pega la lista de guías montadas del periodo. Eso reemplaza la revisión manual del papel.</p>
-
-      <div class="card">
-        <h3 class="card-title">Cargar guías montadas</h3>
-        <p class="muted small">Formato por línea: <b>guía, origen, destino</b> (origen y destino opcionales). Acepta CSV pegado o archivo.</p>
-        <input type="file" id="f-csv" accept=".csv,.txt,.tsv" hidden />
-        <button class="btn-ghost" id="btn-csv">📄 Cargar archivo CSV</button>
-        <label class="field" style="margin-top:10px">
-          <span>…o pegar la lista aquí</span>
-          <textarea id="f-paste" rows="5" placeholder="4954425, San Vicente, 2810&#10;4954531, San Vicente, Viva 51B&#10;..."></textarea>
-        </label>
-        <button class="btn-primary" id="btn-cargar">Cargar lista</button>
-        <div id="import-status" class="status-line"></div>
-      </div>
-
-      <div class="card">
-        <h3 class="card-title">Puntos y PIN de confirmación</h3>
-        <div id="lista-puntos"></div>
-      </div>
-
-      <div class="card">
-        <h3 class="card-title">Guías montadas <span id="fuente-tag" class="pin-pill"></span></h3>
-        <div id="lista-montadas"></div>
-      </div>
-
-      <button class="btn-ghost" id="btn-demo">↺ Volver a datos demo</button>
-      <button class="btn-danger" id="btn-reset">🗑 Borrar legalizaciones</button>
-    </section>
-  </template>
+  </main>
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="assets/seed.js"></script>
+  <script src="assets/config.js"></script>
   <script src="assets/app.js"></script>
 </body>
 </html>

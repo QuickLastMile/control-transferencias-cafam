@@ -1,343 +1,284 @@
 /* ============================================================
- * Quick · Control de Transferencias Cafam — Prototipo (demo)
- * App 100% cliente. localStorage simula la base de legalizaciones.
+ * Quick · Legalización de Transferencias Cafam
+ * Frontend conectado al backend de Google Apps Script.
  * ============================================================ */
 
-const LS_KEY = "qk_legalizaciones_v1";
+const CFG = window.QK_CONFIG || {};
+const $ = (s) => document.querySelector(s);
 
-// ---- Persistencia ----
-function getLegalizaciones() {
-  try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; }
-  catch { return []; }
-}
-function saveLegalizaciones(arr) {
-  localStorage.setItem(LS_KEY, JSON.stringify(arr));
-}
-function legalizacionPorGuia(guia) {
-  return getLegalizaciones().find((l) => l.guia === String(guia).trim()) || null;
-}
-
-// ---- Estado del formulario en curso ----
-let draft = null; // { guia, montada, gps, foto }
+// Estado del formulario
+const estado = {
+  emp: null,          // { cedula, nombre, centro }
+  puntos: [],         // [{corto, plataforma}]
+  tipo: "",           // Recogida | Entrega
+  horaLlegada: "",
+  horaSalida: "",
+  gps: null,          // { lat, lng, acc }
+  direccion: "",
+  fotoBase64: "",
+};
 
 // ---- Utilidades ----
 function toast(msg, tipo = "") {
-  const t = document.getElementById("toast");
+  const t = $("#toast");
   t.textContent = msg;
   t.className = "toast " + tipo;
-  setTimeout(() => t.classList.add("hidden"), 2600);
+  setTimeout(() => t.classList.add("hidden"), 3000);
 }
-function fmtFecha(iso) {
-  const d = new Date(iso);
-  return d.toLocaleString("es-CO", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+function horaAhora() {
+  return new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
-function $(sel, root = document) { return root.querySelector(sel); }
-
-// ============================================================
-// NAVEGACIÓN
-// ============================================================
-function setView(name) {
-  document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
-  const tpl = document.getElementById("view-" + name);
-  const app = document.getElementById("app");
-  app.innerHTML = "";
-  app.appendChild(tpl.content.cloneNode(true));
-  if (name === "mensajero") initMensajero();
-  if (name === "tablero") initTablero();
-  if (name === "datos") initDatos();
+function setStatus(sel, msg, tipo) {
+  const e = $(sel);
+  e.className = "status-line " + (tipo || "");
+  e.innerHTML = msg;
 }
 
-document.querySelectorAll(".tab").forEach((b) =>
-  b.addEventListener("click", () => setView(b.dataset.view))
-);
-
-// ============================================================
-// VISTA MENSAJERO
-// ============================================================
-function initMensajero() {
-  draft = null;
-  const inputGuia = $("#f-guia");
-  $("#btn-validar").addEventListener("click", () => validarGuia(inputGuia.value));
-  inputGuia.addEventListener("keydown", (e) => { if (e.key === "Enter") validarGuia(inputGuia.value); });
-
-  $("#btn-gps").addEventListener("click", capturarGPS);
-  $("#btn-foto").addEventListener("click", () => $("#f-foto").click());
-  $("#f-foto").addEventListener("change", capturarFoto);
-  $("#btn-legalizar").addEventListener("click", legalizar);
+// ---- Llamadas al backend ----
+async function apiGet(params) {
+  const qs = new URLSearchParams(Object.assign({ token: CFG.TOKEN }, params)).toString();
+  const res = await fetch(CFG.API_URL + "?" + qs);
+  return res.json();
+}
+async function apiPost(obj) {
+  // text/plain evita el preflight CORS de Apps Script
+  const res = await fetch(CFG.API_URL, {
+    method: "POST",
+    body: JSON.stringify(Object.assign({ token: CFG.TOKEN }, obj)),
+  });
+  return res.json();
 }
 
-function validarGuia(valor) {
-  const guia = String(valor || "").trim();
-  const status = $("#guia-status");
-  const resto = $("#form-resto");
-
-  if (!guia) {
-    status.className = "status-line err";
-    status.textContent = "Ingresa un número de guía.";
-    return;
+// ============================================================
+// 1. BUSCAR CÉDULA
+// ============================================================
+async function buscarCedula() {
+  const cedula = $("#f-cedula").value.replace(/\D/g, "");
+  if (!cedula) { setStatus("#cedula-status", "Ingresa la cédula.", "err"); return; }
+  setStatus("#cedula-status", "Buscando…", "info");
+  $("#emp-box").classList.add("hidden");
+  try {
+    const r = await apiGet({ action: "buscarCedula", cedula });
+    if (!r.ok) { setStatus("#cedula-status", "✕ " + (r.error || "No encontrada."), "err"); estado.emp = null; return; }
+    estado.emp = { cedula: r.cedula, nombre: r.nombre, centro: r.centro };
+    $("#r-nombre").textContent = r.nombre || "—";
+    $("#r-centro").textContent = r.centro || "—";
+    $("#emp-box").classList.remove("hidden");
+    setStatus("#cedula-status", "✓ Mensajero encontrado.", "ok");
+    $("#bloque-datos").classList.remove("hidden");
+    if (!estado.puntos.length) cargarPuntos();
+  } catch (e) {
+    setStatus("#cedula-status", "Error de conexión con el servidor.", "err");
   }
-  if (legalizacionPorGuia(guia)) {
-    status.className = "status-line err";
-    status.textContent = "⚠ Esta guía ya fue legalizada.";
-    resto.classList.add("hidden");
-    return;
-  }
-
-  const montada = montadaPorGuia(guia);
-  if (!montada) {
-    // ---- Principio de anclaje: si no existe en plataforma, no se puede legalizar ----
-    status.className = "status-line err";
-    status.innerHTML = "✕ Guía <b>no encontrada</b> en la plataforma. No se puede legalizar.";
-    resto.classList.add("hidden");
-    return;
-  }
-
-  // Guía válida
-  const punto = puntoPorId(montada.destinoId);
-  status.className = "status-line ok";
-  status.textContent = "✓ Guía válida y montada en plataforma.";
-  $("#r-origen").textContent = montada.origen || "—";
-  $("#r-destino").textContent = punto ? punto.nombre : (montada.destinoTexto || montada.destinoId || "—");
-  resto.classList.remove("hidden");
-
-  draft = { guia, montada, gps: null, foto: null };
 }
 
+// ============================================================
+// 2. PUNTOS DE VENTA
+// ============================================================
+async function cargarPuntos() {
+  try {
+    const r = await apiGet({ action: "puntos" });
+    if (r.ok && r.puntos) {
+      estado.puntos = r.puntos;
+      $("#dl-puntos").innerHTML = r.puntos
+        .map((p) => `<option value="${p.corto}">${p.plataforma || ""}</option>`)
+        .join("");
+    }
+  } catch (e) { /* sin puntos, el campo queda libre */ }
+}
+function puntoSeleccionado() {
+  const v = $("#f-punto").value.trim();
+  const p = estado.puntos.find((x) => x.corto.toLowerCase() === v.toLowerCase());
+  return p || (v ? { corto: v, plataforma: "" } : null);
+}
+
+// ============================================================
+// 3. MARCACIONES
+// ============================================================
+function marcarLlegada() {
+  estado.horaLlegada = horaAhora();
+  $("#r-llegada").textContent = estado.horaLlegada;
+}
+function marcarSalida() {
+  estado.horaSalida = horaAhora();
+  $("#r-salida").textContent = estado.horaSalida;
+}
+
+// ============================================================
+// 4. GPS + DIRECCIÓN + FOTO CON MARCA DE AGUA
+// ============================================================
 function capturarGPS() {
-  const status = $("#gps-status");
-  if (!navigator.geolocation) {
-    status.className = "status-line err";
-    status.textContent = "Este dispositivo no soporta GPS.";
-    return;
-  }
-  status.className = "status-line info";
-  status.textContent = "Obteniendo ubicación…";
+  if (!navigator.geolocation) { setStatus("#gps-status", "Sin soporte de GPS.", "err"); return; }
+  setStatus("#gps-status", "Obteniendo ubicación…", "info");
   navigator.geolocation.getCurrentPosition(
-    (pos) => {
+    async (pos) => {
       const { latitude, longitude, accuracy } = pos.coords;
-      draft.gps = { lat: latitude, lng: longitude, acc: Math.round(accuracy) };
-      status.className = "status-line ok";
-      status.textContent = `✓ ${latitude.toFixed(5)}, ${longitude.toFixed(5)} (±${draft.gps.acc} m)`;
+      estado.gps = { lat: +latitude.toFixed(6), lng: +longitude.toFixed(6), acc: Math.round(accuracy) };
+      setStatus("#gps-status", `✓ ${estado.gps.lat}, ${estado.gps.lng} (±${estado.gps.acc} m). Buscando dirección…`, "ok");
+      estado.direccion = await reverseGeocode(estado.gps.lat, estado.gps.lng);
+      setStatus("#gps-status", `✓ ${estado.direccion || (estado.gps.lat + ", " + estado.gps.lng)}`, "ok");
     },
-    (err) => {
-      status.className = "status-line err";
-      status.textContent = "No se pudo obtener la ubicación: " + err.message;
-    },
-    { enableHighAccuracy: true, timeout: 10000 }
+    () => setStatus("#gps-status", "No se pudo obtener la ubicación. Activa el GPS y los permisos.", "err"),
+    { enableHighAccuracy: true, timeout: 12000 }
   );
 }
 
-function capturarFoto(e) {
+async function reverseGeocode(lat, lng) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
+    const res = await fetch(url, { headers: { "Accept-Language": "es" } });
+    const j = await res.json();
+    return j.display_name || "";
+  } catch (e) { return ""; }
+}
+
+function tomarFoto() {
+  if (!estado.gps) { toast("Captura la ubicación primero.", "err"); return; }
+  $("#f-foto").click();
+}
+
+function procesarFoto(e) {
   const file = e.target.files[0];
   if (!file) return;
+  const img = new Image();
   const reader = new FileReader();
-  reader.onload = () => {
-    draft.foto = reader.result;
-    const img = $("#foto-preview");
-    img.src = reader.result;
-    img.classList.remove("hidden");
-  };
+  reader.onload = () => { img.onload = () => dibujarMarca(img); img.src = reader.result; };
   reader.readAsDataURL(file);
 }
 
-function legalizar() {
-  if (!draft) return;
-  const pin = $("#f-pin").value.trim();
-  const pinStatus = $("#pin-status");
-  const punto = puntoPorId(draft.montada.destinoId);
+function dibujarMarca(img) {
+  const canvas = $("#canvas");
+  const maxW = 1280;
+  const escala = Math.min(1, maxW / img.width);
+  canvas.width = img.width * escala;
+  canvas.height = img.height * escala;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-  // Validaciones
-  if (!draft.gps) { toast("Captura la ubicación GPS primero.", "err"); return; }
-  if (!draft.foto) { toast("Toma la foto de evidencia.", "err"); return; }
-  if (!pin) {
-    pinStatus.className = "status-line err";
-    pinStatus.textContent = "Ingresa el PIN del punto.";
-    return;
+  // Texto de la marca
+  const ahora = new Date();
+  const fecha = ahora.toLocaleString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  const lineas = [
+    "Quick · Evidencia de transferencia",
+    "Fecha/hora: " + fecha,
+    "GPS: " + (estado.gps ? estado.gps.lat + ", " + estado.gps.lng : "—"),
+    "Dir: " + (estado.direccion || "no disponible"),
+  ];
+
+  const fontSize = Math.max(14, Math.round(canvas.width / 45));
+  ctx.font = fontSize + "px Arial";
+  const pad = fontSize * 0.6;
+  const lh = fontSize * 1.35;
+  // Recuadro de fondo
+  const wrap = wrapLines(ctx, lineas, canvas.width - pad * 2);
+  const boxH = wrap.length * lh + pad * 1.5;
+  ctx.fillStyle = "rgba(16,58,107,0.72)";
+  ctx.fillRect(0, canvas.height - boxH, canvas.width, boxH);
+  // Texto
+  ctx.fillStyle = "#fff";
+  ctx.textBaseline = "top";
+  let y = canvas.height - boxH + pad * 0.75;
+  wrap.forEach((ln) => { ctx.fillText(ln, pad, y); y += lh; });
+
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
+  estado.fotoBase64 = dataUrl;
+  const prev = $("#foto-preview");
+  prev.src = dataUrl;
+  prev.classList.remove("hidden");
+}
+
+function wrapLines(ctx, lineas, maxW) {
+  const out = [];
+  lineas.forEach((linea) => {
+    const palabras = linea.split(" ");
+    let cur = "";
+    palabras.forEach((p) => {
+      const test = cur ? cur + " " + p : p;
+      if (ctx.measureText(test).width > maxW && cur) { out.push(cur); cur = p; }
+      else cur = test;
+    });
+    if (cur) out.push(cur);
+  });
+  return out;
+}
+
+// ============================================================
+// 5. FINALIZAR
+// ============================================================
+async function finalizar() {
+  if (!estado.emp) { toast("Busca primero la cédula.", "err"); return; }
+  const punto = puntoSeleccionado();
+  const guia = $("#f-guia").value.replace(/\D/g, "");
+  if (!punto) { toast("Selecciona el punto de venta.", "err"); return; }
+  if (!guia) { toast("El número de guía es obligatorio.", "err"); return; }
+  if (!estado.tipo) { toast("Indica si es Recogida o Entrega.", "err"); return; }
+  if (!estado.horaLlegada && !estado.horaSalida) { toast("Marca llegada y/o salida.", "err"); return; }
+  if (!estado.fotoBase64) { toast("Toma la foto de evidencia.", "err"); return; }
+
+  const btn = $("#btn-finalizar");
+  btn.disabled = true;
+  setStatus("#final-status", "Enviando…", "info");
+
+  try {
+    const r = await apiPost({
+      action: "registrar",
+      cedula: estado.emp.cedula,
+      puntoCorto: punto.corto,
+      puntoPlataforma: punto.plataforma,
+      guia,
+      tipo: estado.tipo,
+      horaLlegada: estado.horaLlegada,
+      horaSalida: estado.horaSalida,
+      lat: estado.gps ? estado.gps.lat : "",
+      lng: estado.gps ? estado.gps.lng : "",
+      direccion: estado.direccion,
+      fotoBase64: estado.fotoBase64,
+    });
+    if (!r.ok) { setStatus("#final-status", "✕ " + (r.error || "Error al guardar."), "err"); btn.disabled = false; return; }
+    const cruceMsg = r.cruce === "NO"
+      ? " ⚠️ La guía NO aparece en Smart Quick — el regente lo revisará."
+      : "";
+    setStatus("#final-status", `✓ Registrado (${r.id}). Queda pendiente de aprobación.` + cruceMsg, "ok");
+    toast("✓ Transferencia enviada.", "ok");
+    setTimeout(resetForm, 2500);
+  } catch (e) {
+    setStatus("#final-status", "Error de conexión con el servidor.", "err");
+    btn.disabled = false;
   }
-  if (punto) {
-    // Punto reconocido: el PIN debe coincidir con el del punto destino
-    if (pin !== punto.pin) {
-      pinStatus.className = "status-line err";
-      pinStatus.textContent = "✕ PIN incorrecto para este punto.";
-      return;
-    }
-  } else if (pin.length < 3) {
-    // Punto no mapeado aún: se exige un código de confirmación mínimo
-    pinStatus.className = "status-line err";
-    pinStatus.textContent = "Ingresa el código de confirmación del punto.";
-    return;
-  }
+}
 
-  const registro = {
-    guia: draft.guia,
-    origen: draft.montada.origen,
-    destinoId: draft.montada.destinoId,
-    destinoNombre: punto ? punto.nombre : (draft.montada.destinoTexto || "—"),
-    gps: draft.gps,
-    foto: draft.foto,
-    pinOk: true,
-    hora: new Date().toISOString(), // "hora del servidor" (simulada en cliente para la demo)
-  };
-  const arr = getLegalizaciones();
-  arr.push(registro);
-  saveLegalizaciones(arr);
-
-  toast("✓ Transferencia legalizada y conciliada.", "ok");
-  setView("tablero");
+function resetForm() {
+  estado.tipo = ""; estado.horaLlegada = ""; estado.horaSalida = "";
+  estado.gps = null; estado.direccion = ""; estado.fotoBase64 = "";
+  ["#f-punto", "#f-guia"].forEach((s) => ($(s).value = ""));
+  $("#r-llegada").textContent = "—"; $("#r-salida").textContent = "—";
+  $("#gps-status").textContent = ""; $("#final-status").textContent = "";
+  $("#foto-preview").classList.add("hidden");
+  document.querySelectorAll(".toggle").forEach((b) => b.classList.remove("active"));
+  $("#btn-finalizar").disabled = false;
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 // ============================================================
-// VISTA TABLERO (conciliación)
+// EVENTOS
 // ============================================================
-function construirConciliacion() {
-  const legals = getLegalizaciones();
-  const legalSet = new Map(legals.map((l) => [l.guia, l]));
-  const filas = [];
+$("#btn-buscar").addEventListener("click", buscarCedula);
+$("#f-cedula").addEventListener("keydown", (e) => { if (e.key === "Enter") buscarCedula(); });
+$("#btn-llegada").addEventListener("click", marcarLlegada);
+$("#btn-salida").addEventListener("click", marcarSalida);
+$("#btn-gps").addEventListener("click", capturarGPS);
+$("#btn-foto").addEventListener("click", tomarFoto);
+$("#f-foto").addEventListener("change", procesarFoto);
+$("#btn-finalizar").addEventListener("click", finalizar);
+document.querySelectorAll(".toggle").forEach((b) =>
+  b.addEventListener("click", () => {
+    document.querySelectorAll(".toggle").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    estado.tipo = b.dataset.tipo;
+  })
+);
 
-  // 1. Montadas: conciliadas o pendientes
-  getMontadas().forEach((m) => {
-    const leg = legalSet.get(m.guia);
-    const punto = puntoPorId(m.destinoId);
-    const destino = punto ? punto.nombre : (m.destinoTexto || m.destinoId || "—");
-    filas.push({ estado: leg ? "ok" : "pendiente", guia: m.guia, destino, leg: leg || null });
-  });
-
-  // 2. Legalizadas que NO están montadas → alerta (no debería pasar por el anclaje, pero se cubre)
-  legals.forEach((l) => {
-    if (!montadaPorGuia(l.guia)) {
-      filas.push({ estado: "alerta", guia: l.guia, destino: l.destinoNombre, leg: l });
-    }
-  });
-
-  return filas;
+// Aviso si falta configurar
+if (!CFG.API_URL || /CAMBIA/.test(CFG.TOKEN || "")) {
+  setTimeout(() => toast("⚙️ Falta configurar el TOKEN en assets/config.js", "err"), 600);
 }
-
-let filtroActual = "todos";
-
-function initTablero() {
-  document.querySelectorAll(".chip").forEach((c) =>
-    c.addEventListener("click", () => {
-      filtroActual = c.dataset.filter;
-      document.querySelectorAll(".chip").forEach((x) => x.classList.toggle("active", x === c));
-      renderTablero();
-    })
-  );
-  filtroActual = "todos";
-  renderTablero();
-}
-
-function renderTablero() {
-  const filas = construirConciliacion();
-  const tot = filas.length;
-  const ok = filas.filter((f) => f.estado === "ok").length;
-  const pend = filas.filter((f) => f.estado === "pendiente").length;
-  const alert = filas.filter((f) => f.estado === "alerta").length;
-
-  $("#kpis").innerHTML = `
-    <div class="kpi tot"><div class="num">${getMontadas().length}</div><div class="lbl">Montadas en plataforma</div></div>
-    <div class="kpi ok"><div class="num">${ok}</div><div class="lbl">Conciliadas</div></div>
-    <div class="kpi pend"><div class="num">${pend}</div><div class="lbl">Pendientes</div></div>
-    <div class="kpi alert"><div class="num">${alert}</div><div class="lbl">Alertas</div></div>
-  `;
-
-  const visibles = filtroActual === "todos" ? filas : filas.filter((f) => f.estado === filtroActual);
-  const cont = $("#tabla-conciliacion");
-
-  if (!visibles.length) {
-    cont.innerHTML = `<div class="empty">Sin registros en este filtro.</div>`;
-    return;
-  }
-
-  cont.innerHTML = visibles.map((f) => {
-    const etiqueta = { ok: "Conciliada", pendiente: "Pendiente", alerta: "Alerta" }[f.estado];
-    let meta = `Destino: <b>${f.destino}</b>`;
-    if (f.leg) {
-      const g = f.leg.gps;
-      meta += `<br>Hora: <b>${fmtFecha(f.leg.hora)}</b>`;
-      if (g) meta += ` · GPS: <b>${g.lat.toFixed(4)}, ${g.lng.toFixed(4)}</b>`;
-      meta += ` · PIN punto: <b>✓</b>`;
-      if (f.leg.foto) meta += ` · Foto: <b>✓</b>`;
-    } else {
-      meta += `<br><b>Sin legalizar</b> — montada en plataforma pero no reportada por el mensajero.`;
-    }
-    if (f.estado === "alerta") {
-      meta += `<br><b style="color:#B02A2A">Legalizada sin existir en plataforma (posible fraude).</b>`;
-    }
-    return `
-      <div class="row ${f.estado}">
-        <div class="row-top">
-          <span class="row-guia">Guía ${f.guia}</span>
-          <span class="badge ${f.estado}">${etiqueta}</span>
-        </div>
-        <div class="row-meta">${meta}</div>
-      </div>`;
-  }).join("");
-}
-
-// ============================================================
-// VISTA DATOS DEMO
-// ============================================================
-function initDatos() {
-  pintarDatos();
-
-  // Cargar archivo CSV
-  $("#btn-csv").addEventListener("click", () => $("#f-csv").click());
-  $("#f-csv").addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => { $("#f-paste").value = reader.result; };
-    reader.readAsText(file);
-  });
-
-  // Cargar lista (pegada o desde archivo ya volcado al textarea)
-  $("#btn-cargar").addEventListener("click", () => {
-    const texto = $("#f-paste").value;
-    const { montadas, errores } = parseExport(texto);
-    const status = $("#import-status");
-    if (!montadas.length) {
-      status.className = "status-line err";
-      status.textContent = "No se cargó ninguna guía válida. " + (errores[0] || "");
-      return;
-    }
-    setMontadas(montadas);
-    status.className = "status-line ok";
-    status.textContent = `✓ ${montadas.length} guías cargadas` +
-      (errores.length ? ` · ${errores.length} línea(s) omitida(s).` : ".");
-    pintarDatos();
-  });
-
-  $("#btn-demo").addEventListener("click", () => {
-    clearMontadas();
-    $("#f-paste").value = "";
-    $("#import-status").textContent = "";
-    toast("Usando datos demo.", "ok");
-    pintarDatos();
-  });
-
-  $("#btn-reset").addEventListener("click", () => {
-    if (confirm("¿Borrar todas las legalizaciones?")) {
-      localStorage.removeItem(LS_KEY);
-      toast("Legalizaciones borradas.", "ok");
-      pintarDatos();
-    }
-  });
-}
-
-function pintarDatos() {
-  $("#lista-puntos").innerHTML = PUNTOS.map((p) =>
-    `<div class="lista-item"><span>${p.nombre}</span><span class="pin-pill">${p.pin}</span></div>`
-  ).join("");
-
-  const tag = $("#fuente-tag");
-  if (tag) tag.textContent = usandoDatosReales() ? "cargadas" : "demo";
-
-  const legals = getLegalizaciones();
-  $("#lista-montadas").innerHTML = getMontadas().map((m) => {
-    const ya = legals.some((l) => l.guia === m.guia);
-    return `<div class="lista-item"><span>${m.guia}</span><span>${ya ? "✓ legalizada" : "⏳ pendiente"}</span></div>`;
-  }).join("");
-}
-
-// ---- Arranque ----
-setView("mensajero");

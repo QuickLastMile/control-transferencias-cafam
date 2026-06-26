@@ -150,6 +150,36 @@ input:focus, textarea:focus { outline: 2px solid var(--azul-claro); border-color
 
 .empty { text-align: center; color: var(--gris); padding: 30px 10px; font-size: 14px; }
 
+/* Advertencia guía */
+.warn-box {
+  background: var(--amber-bg); border: 1px solid #E7D29A; color: #7a5a00;
+  border-radius: 10px; padding: 11px 12px; font-size: 12.5px; line-height: 1.45; margin: 4px 0 12px;
+}
+.warn-box b { color: #7a4d00; }
+
+/* Etiqueta de campo suelta */
+.field-label { font-size: 12px; font-weight: 600; color: var(--gris); display: block; margin-bottom: 8px; }
+
+/* Toggle Recogida / Entrega */
+.toggle-group { display: flex; gap: 10px; }
+.toggle {
+  flex: 1; padding: 13px; border-radius: 10px; font-size: 14px; font-weight: 700;
+  background: #fff; color: var(--azul); border: 1.5px solid var(--borde); cursor: pointer;
+}
+.toggle.active { background: var(--azul); color: #fff; border-color: var(--azul); }
+
+/* Marcaciones */
+.marca-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.btn-marca {
+  flex: 0 0 auto; min-width: 130px; padding: 12px; border-radius: 10px;
+  font-size: 14px; font-weight: 700; background: #fff; color: var(--azul);
+  border: 1.5px solid var(--azul-med); cursor: pointer;
+}
+.btn-marca:active { background: var(--azul-claro); }
+.marca-hora { font-size: 18px; color: var(--azul); font-variant-numeric: tabular-nums; }
+
+#canvas { display: none; }
+
 /* Toast */
 .toast {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
