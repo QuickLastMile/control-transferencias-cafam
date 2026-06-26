@@ -1,0 +1,10 @@
+# OS / editores
+Thumbs.db
+.DS_Store
+*.log
+
+# Dependencias (por si se agregan luego)
+node_modules/
+
+# Temporales
+*.tmp

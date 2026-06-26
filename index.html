@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#103A6B" />
+  <title>Quick · Control de Transferencias Cafam</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">Quick</span>
+      <span class="brand-sub">Control de Transferencias · Cafam</span>
+    </div>
+    <span class="demo-badge">DEMO</span>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-view="mensajero">📦 Mensajero</button>
+    <button class="tab" data-view="tablero">📊 Tablero</button>
+    <button class="tab" data-view="datos">⚙️ Datos demo</button>
+  </nav>
+
+  <main id="app"></main>
+
+  <!-- Plantillas de vistas -->
+  <template id="view-mensajero">
+    <section class="view">
+      <h2>Legalizar transferencia</h2>
+      <p class="muted">Cada paso queda registrado con evidencia que el mensajero no puede alterar.</p>
+
+      <div class="card">
+        <label class="field">
+          <span>Número de guía</span>
+          <input type="text" id="f-guia" inputmode="numeric" placeholder="Ej: 4954425" autocomplete="off" />
+        </label>
+        <button class="btn-ghost" id="btn-validar">Validar guía contra la plataforma</button>
+        <div id="guia-status" class="status-line"></div>
+      </div>
+
+      <div id="form-resto" class="hidden">
+        <div class="card">
+          <div class="kv"><span>Origen</span><strong id="r-origen">—</strong></div>
+          <div class="kv"><span>Destino</span><strong id="r-destino">—</strong></div>
+        </div>
+
+        <div class="card">
+          <div class="step-head"><span class="step-num">1</span> Ubicación (GPS)</div>
+          <button class="btn-ghost" id="btn-gps">📍 Capturar ubicación</button>
+          <div id="gps-status" class="status-line"></div>
+        </div>
+
+        <div class="card">
+          <div class="step-head"><span class="step-num">2</span> Foto de evidencia</div>
+          <input type="file" id="f-foto" accept="image/*" capture="environment" hidden />
+          <button class="btn-ghost" id="btn-foto">📷 Tomar foto de la guía/paquete</button>
+          <img id="foto-preview" class="foto-preview hidden" alt="evidencia" />
+        </div>
+
+        <div class="card">
+          <div class="step-head"><span class="step-num">3</span> Confirmación del punto</div>
+          <p class="muted small">El funcionario del punto ingresa su PIN. Reemplaza al sello físico.</p>
+          <label class="field">
+            <span>PIN del punto destino</span>
+            <input type="password" id="f-pin" inputmode="numeric" maxlength="6" placeholder="••••" autocomplete="off" />
+          </label>
+          <div id="pin-status" class="status-line"></div>
+        </div>
+
+        <div class="card subtle">
+          <div class="kv"><span>Hora registrada (servidor)</span><strong id="r-hora">se asigna al confirmar</strong></div>
+        </div>
+
+        <button class="btn-primary" id="btn-legalizar">Legalizar transferencia</button>
+      </div>
+    </section>
+  </template>
+
+  <template id="view-tablero">
+    <section class="view">
+      <h2>Tablero de conciliación</h2>
+      <p class="muted">Plataforma vs legalizado, en tiempo real.</p>
+      <div class="kpis" id="kpis"></div>
+      <div class="filters">
+        <button class="chip active" data-filter="todos">Todos</button>
+        <button class="chip" data-filter="ok">✓ Conciliados</button>
+        <button class="chip" data-filter="pendiente">⏳ Pendientes</button>
+        <button class="chip" data-filter="alerta">⚠ Alertas</button>
+      </div>
+      <div id="tabla-conciliacion"></div>
+    </section>
+  </template>
+
+  <template id="view-datos">
+    <section class="view">
+      <h2>Datos de la demo</h2>
+      <p class="muted">Estos datos simulan la plataforma. En producción vienen del export o la API de Cafam.</p>
+      <div class="card">
+        <h3 class="card-title">Puntos y PIN de confirmación</h3>
+        <div id="lista-puntos"></div>
+      </div>
+      <div class="card">
+        <h3 class="card-title">Guías montadas en plataforma</h3>
+        <div id="lista-montadas"></div>
+      </div>
+      <button class="btn-danger" id="btn-reset">↺ Reiniciar demo (borrar legalizaciones)</button>
+    </section>
+  </template>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="assets/seed.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
