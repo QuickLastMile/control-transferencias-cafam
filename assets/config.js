@@ -4,5 +4,5 @@
  */
 window.QK_CONFIG = {
   API_URL: "https://script.google.com/macros/s/AKfycbzI7ZIjtV66Dt99GkFjw6gAZk62yb5zOINjiWflsdaooULam5Jsix-KljQinAa8_oP-/exec",
-  TOKEN: "QK-CAMBIA-ESTE-TOKEN-1234567890", // <-- PEGA AQUÍ EL MISMO TOKEN DE Code.gs
+  TOKEN: "QK-TRANSFERENCIAS-1234567890", // <-- PEGA AQUÍ EL MISMO TOKEN DE Code.gs
 };
