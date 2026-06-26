@@ -19,7 +19,7 @@
   <nav class="tabs">
     <button class="tab active" data-view="mensajero">📦 Mensajero</button>
     <button class="tab" data-view="tablero">📊 Tablero</button>
-    <button class="tab" data-view="datos">⚙️ Datos demo</button>
+    <button class="tab" data-view="datos">⚙️ Datos</button>
   </nav>
 
   <main id="app"></main>
@@ -94,17 +94,34 @@
 
   <template id="view-datos">
     <section class="view">
-      <h2>Datos de la demo</h2>
-      <p class="muted">Estos datos simulan la plataforma. En producción vienen del export o la API de Cafam.</p>
+      <h2>Datos de la plataforma</h2>
+      <p class="muted">La plataforma de Cafam no tiene API. Aquí se carga el export (CSV/Excel) o se pega la lista de guías montadas del periodo. Eso reemplaza la revisión manual del papel.</p>
+
+      <div class="card">
+        <h3 class="card-title">Cargar guías montadas</h3>
+        <p class="muted small">Formato por línea: <b>guía, origen, destino</b> (origen y destino opcionales). Acepta CSV pegado o archivo.</p>
+        <input type="file" id="f-csv" accept=".csv,.txt,.tsv" hidden />
+        <button class="btn-ghost" id="btn-csv">📄 Cargar archivo CSV</button>
+        <label class="field" style="margin-top:10px">
+          <span>…o pegar la lista aquí</span>
+          <textarea id="f-paste" rows="5" placeholder="4954425, San Vicente, 2810&#10;4954531, San Vicente, Viva 51B&#10;..."></textarea>
+        </label>
+        <button class="btn-primary" id="btn-cargar">Cargar lista</button>
+        <div id="import-status" class="status-line"></div>
+      </div>
+
       <div class="card">
         <h3 class="card-title">Puntos y PIN de confirmación</h3>
         <div id="lista-puntos"></div>
       </div>
+
       <div class="card">
-        <h3 class="card-title">Guías montadas en plataforma</h3>
+        <h3 class="card-title">Guías montadas <span id="fuente-tag" class="pin-pill"></span></h3>
         <div id="lista-montadas"></div>
       </div>
-      <button class="btn-danger" id="btn-reset">↺ Reiniciar demo (borrar legalizaciones)</button>
+
+      <button class="btn-ghost" id="btn-demo">↺ Volver a datos demo</button>
+      <button class="btn-danger" id="btn-reset">🗑 Borrar legalizaciones</button>
     </section>
   </template>
 

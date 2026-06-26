@@ -96,8 +96,8 @@ function validarGuia(valor) {
   const punto = puntoPorId(montada.destinoId);
   status.className = "status-line ok";
   status.textContent = "✓ Guía válida y montada en plataforma.";
-  $("#r-origen").textContent = montada.origen;
-  $("#r-destino").textContent = punto ? punto.nombre : montada.destinoId;
+  $("#r-origen").textContent = montada.origen || "—";
+  $("#r-destino").textContent = punto ? punto.nombre : (montada.destinoTexto || montada.destinoId || "—");
   resto.classList.remove("hidden");
 
   draft = { guia, montada, gps: null, foto: null };
@@ -154,9 +154,17 @@ function legalizar() {
     pinStatus.textContent = "Ingresa el PIN del punto.";
     return;
   }
-  if (!punto || pin !== punto.pin) {
+  if (punto) {
+    // Punto reconocido: el PIN debe coincidir con el del punto destino
+    if (pin !== punto.pin) {
+      pinStatus.className = "status-line err";
+      pinStatus.textContent = "✕ PIN incorrecto para este punto.";
+      return;
+    }
+  } else if (pin.length < 3) {
+    // Punto no mapeado aún: se exige un código de confirmación mínimo
     pinStatus.className = "status-line err";
-    pinStatus.textContent = "✕ PIN incorrecto para este punto.";
+    pinStatus.textContent = "Ingresa el código de confirmación del punto.";
     return;
   }
 
@@ -164,7 +172,7 @@ function legalizar() {
     guia: draft.guia,
     origen: draft.montada.origen,
     destinoId: draft.montada.destinoId,
-    destinoNombre: punto.nombre,
+    destinoNombre: punto ? punto.nombre : (draft.montada.destinoTexto || "—"),
     gps: draft.gps,
     foto: draft.foto,
     pinOk: true,
@@ -187,14 +195,11 @@ function construirConciliacion() {
   const filas = [];
 
   // 1. Montadas: conciliadas o pendientes
-  MONTADAS.forEach((m) => {
+  getMontadas().forEach((m) => {
     const leg = legalSet.get(m.guia);
     const punto = puntoPorId(m.destinoId);
-    if (leg) {
-      filas.push({ estado: "ok", guia: m.guia, destino: punto ? punto.nombre : m.destinoId, leg });
-    } else {
-      filas.push({ estado: "pendiente", guia: m.guia, destino: punto ? punto.nombre : m.destinoId, leg: null });
-    }
+    const destino = punto ? punto.nombre : (m.destinoTexto || m.destinoId || "—");
+    filas.push({ estado: leg ? "ok" : "pendiente", guia: m.guia, destino, leg: leg || null });
   });
 
   // 2. Legalizadas que NO están montadas → alerta (no debería pasar por el anclaje, pero se cubre)
@@ -229,7 +234,7 @@ function renderTablero() {
   const alert = filas.filter((f) => f.estado === "alerta").length;
 
   $("#kpis").innerHTML = `
-    <div class="kpi tot"><div class="num">${MONTADAS.length}</div><div class="lbl">Montadas en plataforma</div></div>
+    <div class="kpi tot"><div class="num">${getMontadas().length}</div><div class="lbl">Montadas en plataforma</div></div>
     <div class="kpi ok"><div class="num">${ok}</div><div class="lbl">Conciliadas</div></div>
     <div class="kpi pend"><div class="num">${pend}</div><div class="lbl">Pendientes</div></div>
     <div class="kpi alert"><div class="num">${alert}</div><div class="lbl">Alertas</div></div>
@@ -273,23 +278,65 @@ function renderTablero() {
 // VISTA DATOS DEMO
 // ============================================================
 function initDatos() {
+  pintarDatos();
+
+  // Cargar archivo CSV
+  $("#btn-csv").addEventListener("click", () => $("#f-csv").click());
+  $("#f-csv").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { $("#f-paste").value = reader.result; };
+    reader.readAsText(file);
+  });
+
+  // Cargar lista (pegada o desde archivo ya volcado al textarea)
+  $("#btn-cargar").addEventListener("click", () => {
+    const texto = $("#f-paste").value;
+    const { montadas, errores } = parseExport(texto);
+    const status = $("#import-status");
+    if (!montadas.length) {
+      status.className = "status-line err";
+      status.textContent = "No se cargó ninguna guía válida. " + (errores[0] || "");
+      return;
+    }
+    setMontadas(montadas);
+    status.className = "status-line ok";
+    status.textContent = `✓ ${montadas.length} guías cargadas` +
+      (errores.length ? ` · ${errores.length} línea(s) omitida(s).` : ".");
+    pintarDatos();
+  });
+
+  $("#btn-demo").addEventListener("click", () => {
+    clearMontadas();
+    $("#f-paste").value = "";
+    $("#import-status").textContent = "";
+    toast("Usando datos demo.", "ok");
+    pintarDatos();
+  });
+
+  $("#btn-reset").addEventListener("click", () => {
+    if (confirm("¿Borrar todas las legalizaciones?")) {
+      localStorage.removeItem(LS_KEY);
+      toast("Legalizaciones borradas.", "ok");
+      pintarDatos();
+    }
+  });
+}
+
+function pintarDatos() {
   $("#lista-puntos").innerHTML = PUNTOS.map((p) =>
     `<div class="lista-item"><span>${p.nombre}</span><span class="pin-pill">${p.pin}</span></div>`
   ).join("");
 
+  const tag = $("#fuente-tag");
+  if (tag) tag.textContent = usandoDatosReales() ? "cargadas" : "demo";
+
   const legals = getLegalizaciones();
-  $("#lista-montadas").innerHTML = MONTADAS.map((m) => {
+  $("#lista-montadas").innerHTML = getMontadas().map((m) => {
     const ya = legals.some((l) => l.guia === m.guia);
     return `<div class="lista-item"><span>${m.guia}</span><span>${ya ? "✓ legalizada" : "⏳ pendiente"}</span></div>`;
   }).join("");
-
-  $("#btn-reset").addEventListener("click", () => {
-    if (confirm("¿Borrar todas las legalizaciones de la demo?")) {
-      localStorage.removeItem(LS_KEY);
-      toast("Demo reiniciada.", "ok");
-      initDatos();
-    }
-  });
 }
 
 // ---- Arranque ----

@@ -15,7 +15,8 @@ App web estática, mobile-first, con tres vistas:
   captura GPS, foto de evidencia, hora automática y el PIN del punto (reemplaza al sello).
 - **📊 Tablero** — conciliación en tiempo real: montadas vs legalizadas, con KPIs y
   alertas (conciliada / pendiente / alerta por guía fantasma).
-- **⚙️ Datos demo** — puntos con su PIN y guías montadas; permite reiniciar la demo.
+- **⚙️ Datos** — carga la lista de guías montadas de la plataforma (CSV o pegar texto),
+  muestra los puntos con su PIN y permite volver a los datos demo.
 
 ### El principio de anclaje
 Si el número de guía **no existe en la plataforma**, la app **no permite legalizar**.
@@ -36,15 +37,27 @@ Así, lo legalizado y lo montado cuadran por construcción.
 HTML + CSS + JavaScript puro, sin dependencias ni backend. Los datos se guardan en
 `localStorage`. Pensado para publicarse en **GitHub Pages**.
 
+## Sin API: cómo se obtiene la "fuente de verdad"
+
+La plataforma de Cafam **no tiene API y no se puede obtener**. No hace falta: el sistema
+solo necesita, por periodo, la **lista de guías montadas**. En la vista *Datos* se carga
+esa lista mediante:
+
+1. **Archivo CSV/Excel** exportado de la plataforma, o
+2. **Pegar** la lista copiada de la pantalla de la plataforma.
+
+Formato aceptado por línea: `guía, origen, destino` (origen y destino opcionales; el
+parser detecta encabezados y mapea el destino contra los puntos conocidos). Esa carga
+reemplaza la revisión manual del papel.
+
 ## De prototipo a producción
 
-Esta demo simula la plataforma con datos semilla (`assets/seed.js`). En producción:
+Esta demo guarda todo en `localStorage`. En producción:
 
-- `MONTADAS` se reemplaza por el **export (CSV/Excel) o la API** de guías montadas de Cafam.
+- La lista de guías montadas se sigue cargando por **export/pegado** (no requiere API).
 - Las legalizaciones se guardan en un **backend** (p. ej. Google Sheets vía Apps Script,
-  o una base de datos) en lugar de `localStorage`.
-- La **hora** se sella en el servidor (no en el cliente) y el **GPS** se valida contra
-  la geocerca real de cada punto.
+  como las otras apps de Quick) en lugar de `localStorage`.
+- La **hora** se sella en el servidor y el **GPS** se valida contra la geocerca real.
 - La confirmación del punto puede evolucionar de PIN a **QR dinámico** u OTP.
 
 ## Estructura
