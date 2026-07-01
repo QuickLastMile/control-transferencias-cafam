@@ -38,6 +38,11 @@ const CONFIG = {
     'quick.helpai2026@gmail.com',
   ],
 
+  // Código maestro para que el/los correos ADMIN entren al panel del regente.
+  // CAMBIA por una clave propia. Los regentes NO usan este código: ellos entran
+  // con el TELEFONO de su fila en DROGUERIAS (o una columna CODIGO/PIN si la creas).
+  CODIGO_ADMIN: 'ADMIN2026',
+
   // Carpeta de Drive para las fotos. Deja '' y se crea una automáticamente.
   CARPETA_FOTOS_ID: '',
 
@@ -258,43 +263,60 @@ function regenteEmail() {
 }
 
 /**
- * Determina qué puede ver/aprobar el usuario logueado.
- * - ADMIN (CONFIG.ADMIN): todos los puntos.
- * - Regente: los puntos donde su correo está en la columna CORREO de DROGUERIA.
+ * Valida al regente por CORREO + CÓDIGO (sin depender del login de Google).
+ * - ADMIN (CONFIG.ADMIN): correo admin + CONFIG.CODIGO_ADMIN -> ve todos los puntos.
+ * - Regente: correo en la columna CORREO de DROGUERIAS + código = su TELEFONO
+ *   (o una columna CODIGO/PIN/CLAVE si la creas). Solo ve su(s) punto(s).
+ * Lanza error con mensaje claro si algo no cuadra.
  */
-function contextoRegente() {
-  const email = regenteEmail();
-  const eLower = email.toLowerCase();
-  const esAdmin = CONFIG.ADMIN.map((x) => x.toLowerCase()).indexOf(eLower) >= 0;
+function validarRegente(correo, codigo) {
+  correo = String(correo || '').trim().toLowerCase();
+  codigo = String(codigo || '').trim();
+  if (!correo) throw new Error('Ingresa tu correo.');
+  if (!codigo) throw new Error('Ingresa tu código.');
+
+  // Admin
+  const esAdmin = CONFIG.ADMIN.map((x) => x.toLowerCase()).indexOf(correo) >= 0;
+  if (esAdmin) {
+    if (codigo !== String(CONFIG.CODIGO_ADMIN)) throw new Error('Código de administrador incorrecto.');
+    return { email: correo, esAdmin: true, puntos: [], encargado: 'Administrador', autorizado: true };
+  }
+
+  // Regente
+  const sh = hojaDrogueria();
+  if (!sh) throw new Error('No encuentro la hoja DROGUERIAS.');
+  const data = sh.getDataRange().getValues();
+  const head = data[0].map((h) => String(h).trim().toUpperCase());
+  const iCorto = idxAny(head, ['DROGUERIA NOMBRE CORTO', 'NOMBRE CORTO', 'PUNTO DE VENTA', 'PUNTO', 'DROGUERIA', 'DROGUERIAS']);
+  const iCorreo = idxAny(head, ['CORREO', 'EMAIL', 'CORREO REGENTE']);
+  const iEnc = idxAny(head, ['ENCARGADO DEL PUNTO', 'REGENTE', 'ENCARGADO']);
+  const iTel = idxAny(head, ['TELEFONO', 'TELÉFONO', 'CELULAR', 'TEL']);
+  const iCod = idxAny(head, ['CODIGO', 'CÓDIGO', 'PIN', 'CLAVE']);
+  if (iCorreo < 0) throw new Error('La hoja DROGUERIAS no tiene columna CORREO.');
+
   const puntos = [];
   let encargado = '';
-  const sh = hojaDrogueria();
-  if (sh) {
-    const data = sh.getDataRange().getValues();
-    const head = data[0].map((h) => String(h).trim().toUpperCase());
-    const iCorto = idxAny(head, ['DROGUERIA NOMBRE CORTO', 'NOMBRE CORTO']);
-    const iCorreo = idxAny(head, ['CORREO', 'EMAIL', 'CORREO REGENTE']);
-    const iEnc = idxAny(head, ['ENCARGADO DEL PUNTO', 'REGENTE', 'ENCARGADO']);
-    if (iCorreo >= 0) {
-      for (let r = 1; r < data.length; r++) {
-        const c = String(data[r][iCorreo]).trim().toLowerCase();
-        if (c && c === eLower) {
-          if (iCorto >= 0) puntos.push(String(data[r][iCorto]).trim());
-          if (iEnc >= 0 && !encargado) encargado = String(data[r][iEnc]).trim();
-        }
-      }
+  const codigosValidos = [];
+  for (let r = 1; r < data.length; r++) {
+    const c = String(data[r][iCorreo]).trim().toLowerCase();
+    if (c && c === correo) {
+      if (iCorto >= 0) puntos.push(String(data[r][iCorto]).trim());
+      if (iEnc >= 0 && !encargado) encargado = String(data[r][iEnc]).trim();
+      if (iCod >= 0 && data[r][iCod] !== '') codigosValidos.push(String(data[r][iCod]).trim());
+      if (iTel >= 0 && data[r][iTel] !== '') codigosValidos.push(String(data[r][iTel]).trim());
     }
   }
-  return { email: email, esAdmin: esAdmin, puntos: puntos, encargado: encargado,
-           autorizado: esAdmin || puntos.length > 0 };
+  if (!puntos.length) throw new Error('Tu correo no está registrado como encargado de ningún punto en DROGUERIAS.');
+
+  const soloDig = (s) => String(s).replace(/\D/g, '');
+  const ok = codigosValidos.some((cv) => cv === codigo || (soloDig(cv) && soloDig(cv) === soloDig(codigo)));
+  if (!ok) throw new Error('Código incorrecto. Usa el teléfono registrado de tu punto (o el código asignado).');
+
+  return { email: correo, esAdmin: false, puntos: puntos, encargado: encargado, autorizado: true };
 }
 
-function getPendientes() {
-  const ctx = contextoRegente();
-  if (!ctx.autorizado) {
-    throw new Error('No autorizado: ' + (ctx.email || 'sin sesión') +
-      '. Tu correo no está como encargado en la hoja DROGUERIA ni en ADMIN.');
-  }
+function getPendientes(correo, codigo) {
+  const ctx = validarRegente(correo, codigo);
   const sh = hojaRegistro();
   const data = sh.getDataRange().getValues();
   const head = data[0];
@@ -310,9 +332,8 @@ function getPendientes() {
   return { email: ctx.email, esAdmin: ctx.esAdmin, puntos: ctx.puntos, pendientes: out };
 }
 
-function decidir(id, decision, motivo) {
-  const ctx = contextoRegente();
-  if (!ctx.autorizado) throw new Error('No autorizado.');
+function decidir(correo, codigo, id, decision, motivo) {
+  const ctx = validarRegente(correo, codigo);
   const email = ctx.email;
   const sh = hojaRegistro();
   const data = sh.getDataRange().getValues();

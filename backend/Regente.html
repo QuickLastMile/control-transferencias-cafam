@@ -55,6 +55,23 @@
     .warn { background:#FBE4E4; color:var(--rojo); padding:14px; border-radius:10px; font-size:14px; }
     .loading { text-align:center; color:var(--gris); padding:34px; }
     .foot { text-align:center; color:var(--gris); font-size:11px; padding:22px 0 4px; opacity:.8; }
+    /* Login */
+    .login { max-width:400px; margin:34px auto; background:#fff; border:1px solid var(--borde);
+             border-radius:16px; padding:22px 20px; box-shadow:0 8px 26px rgba(16,58,107,.10); position:relative; overflow:hidden; }
+    .login::before { content:""; position:absolute; top:0; left:0; right:0; height:4px; background:var(--grad-brand); }
+    .login h3 { margin:2px 0 4px; color:var(--azul); font-size:18px; }
+    .login p { margin:0 0 16px; color:var(--gris); font-size:13px; line-height:1.5; }
+    .fld { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+    .fld span { font-size:12px; font-weight:600; color:var(--gris); }
+    .fld input { width:100%; padding:12px; font-size:16px; border:1px solid var(--borde); border-radius:10px; }
+    .fld input:focus { outline:2px solid #DCE7F2; border-color:var(--azulm); }
+    .btn-in { width:100%; padding:13px; border-radius:10px; font-size:15px; color:#fff;
+              background:var(--grad-brand); box-shadow:0 6px 16px rgba(18,69,126,.3); }
+    .btn-in:active { transform:translateY(1px); }
+    .login .warn { margin-top:12px; }
+    .hint { font-size:11.5px; color:var(--gris); margin-top:12px; line-height:1.5; }
+    .btn-out { background:rgba(255,255,255,.14); color:#fff; border:1px solid rgba(255,255,255,.4); }
+    .hidden { display:none !important; }
   </style>
 </head>
 <body>
@@ -65,19 +82,83 @@
       <img class="logo-cafam" src="https://raw.githubusercontent.com/QuickLastMile/control-transferencias-cafam/main/assets/logo-cafam.png" alt="Cafam" />
       <div class="htext">
         <div class="t">Panel del Regente</div>
-        <div class="partner"><span class="u" id="who">…</span></div>
+        <div class="partner"><span class="u" id="who">Ingreso seguro</span></div>
       </div>
     </div>
-    <button class="btn-r" onclick="cargar()">↻ Actualizar</button>
+    <div id="hdr-acc" class="hidden" style="display:flex; gap:8px;">
+      <button class="btn-r" onclick="cargar()">↻ Actualizar</button>
+      <button class="btn-out" onclick="salir()">Salir</button>
+    </div>
   </header>
-  <main>
+
+  <!-- Pantalla de ingreso -->
+  <main id="vista-login">
+    <div class="login">
+      <h3>Ingreso del regente</h3>
+      <p>Escribe tu <b>correo</b> y tu <b>código</b> para ver y aprobar las transferencias de tu punto.</p>
+      <label class="fld"><span>Correo</span>
+        <input type="email" id="in-correo" inputmode="email" autocomplete="username" placeholder="tucorreo@gmail.com" /></label>
+      <label class="fld"><span>Código</span>
+        <input type="password" id="in-codigo" autocomplete="current-password" placeholder="Tu código" /></label>
+      <button class="btn-in" id="btn-ingresar" onclick="ingresar()">Ingresar</button>
+      <div id="login-msg"></div>
+      <div class="hint">Tu <b>código</b> es el <b>teléfono</b> registrado de tu punto en la hoja
+        (o el código que te asignó Quick). Si no puedes entrar, contacta a Quick.</div>
+    </div>
+  </main>
+
+  <!-- Panel de pendientes -->
+  <main id="vista-panel" class="hidden">
     <div class="bar"><h2>Transferencias pendientes</h2><span id="conteo" class="u" style="color:#5A5A5A"></span></div>
     <div id="lista"><div class="loading">Cargando…</div></div>
     <div class="foot">Quick · Control de Transferencias — aprobación segura e inmutable</div>
   </main>
 
   <script>
+    var CRED = { correo: '', codigo: '' };
+
+    function ingresar() {
+      var correo = document.getElementById('in-correo').value.trim();
+      var codigo = document.getElementById('in-codigo').value.trim();
+      var btn = document.getElementById('btn-ingresar');
+      var msg = document.getElementById('login-msg');
+      msg.innerHTML = '';
+      if (!correo || !codigo) { msg.innerHTML = '<div class="warn">Escribe correo y código.</div>'; return; }
+      btn.disabled = true; btn.textContent = 'Verificando…';
+      CRED.correo = correo; CRED.codigo = codigo;
+      google.script.run
+        .withSuccessHandler(function (data) {
+          try { sessionStorage.setItem('qk_reg', JSON.stringify(CRED)); } catch (e) {}
+          mostrarPanel();
+          render(data);
+          btn.disabled = false; btn.textContent = 'Ingresar';
+        })
+        .withFailureHandler(function (e) {
+          CRED = { correo: '', codigo: '' };
+          msg.innerHTML = '<div class="warn">' + e.message + '</div>';
+          btn.disabled = false; btn.textContent = 'Ingresar';
+        })
+        .getPendientes(correo, codigo);
+    }
+
+    function salir() {
+      CRED = { correo: '', codigo: '' };
+      try { sessionStorage.removeItem('qk_reg'); } catch (e) {}
+      document.getElementById('in-codigo').value = '';
+      document.getElementById('vista-panel').classList.add('hidden');
+      document.getElementById('hdr-acc').classList.add('hidden');
+      document.getElementById('vista-login').classList.remove('hidden');
+      document.getElementById('who').textContent = 'Ingreso seguro';
+    }
+
+    function mostrarPanel() {
+      document.getElementById('vista-login').classList.add('hidden');
+      document.getElementById('vista-panel').classList.remove('hidden');
+      document.getElementById('hdr-acc').classList.remove('hidden');
+    }
+
     function cargar() {
+      if (!CRED.correo) { salir(); return; }
       document.getElementById('lista').innerHTML = '<div class="loading">Cargando…</div>';
       google.script.run
         .withSuccessHandler(render)
@@ -85,13 +166,13 @@
           document.getElementById('lista').innerHTML =
             '<div class="warn">' + e.message + '</div>';
         })
-        .getPendientes();
+        .getPendientes(CRED.correo, CRED.codigo);
     }
 
     function render(data) {
-      document.getElementById('who').textContent = 'Sesión: ' + data.email +
+      document.getElementById('who').textContent = data.email +
         (data.esAdmin ? ' · admin (todos los puntos)'
-          : (data.puntos && data.puntos.length ? ' · Puntos: ' + data.puntos.join(', ') : ''));
+          : (data.puntos && data.puntos.length ? ' · ' + data.puntos.join(', ') : ''));
       var p = data.pendientes || [];
       document.getElementById('conteo').textContent = p.length + ' pendiente(s)';
       if (!p.length) {
@@ -138,15 +219,36 @@
       decidir(id, 'rechazar', motivo);
     }
     function decidir(id, decision, motivo) {
+      if (!CRED.correo) { salir(); return; }
       var card = document.getElementById('c_' + id);
       if (card) card.style.opacity = '.5';
       google.script.run
         .withSuccessHandler(function () { if (card) card.remove(); cargar(); })
         .withFailureHandler(function (e) { alert(e.message); if (card) card.style.opacity = '1'; })
-        .decidir(id, decision, motivo);
+        .decidir(CRED.correo, CRED.codigo, id, decision, motivo);
     }
 
-    cargar();
+    // Al abrir: si hay una sesión guardada (misma pestaña), reingresa solo.
+    (function () {
+      try {
+        var raw = sessionStorage.getItem('qk_reg');
+        if (raw) {
+          var c = JSON.parse(raw);
+          if (c && c.correo && c.codigo) {
+            CRED = c;
+            document.getElementById('in-correo').value = c.correo;
+            mostrarPanel();
+            cargar();
+            return;
+          }
+        }
+      } catch (e) {}
+      document.getElementById('in-correo').focus();
+    })();
+
+    document.getElementById('in-codigo').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') ingresar();
+    });
   </script>
 </body>
 </html>
