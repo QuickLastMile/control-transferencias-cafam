@@ -340,12 +340,20 @@ function inicioDatosRegistro(data, col) {
   return (data.length && String(data[0][col.ID]).trim().toUpperCase() === 'ID') ? 1 : 0;
 }
 
+// Si la celda es un objeto Date (Sheets convirtió el texto), la formatea con la
+// zona horaria de la hoja en formato militar; si ya es texto, lo deja igual.
+function fmtCelda(v, fmt, tz) {
+  if (Object.prototype.toString.call(v) === '[object Date]') return Utilities.formatDate(v, tz, fmt);
+  return String(v == null ? '' : v);
+}
+
 function getPendientes(correo, codigo) {
   const ctx = validarRegente(correo, codigo);
   const sh = hojaRegistro();
   const data = sh.getDataRange().getValues();
   const col = colsRegistro();
   const inicio = inicioDatosRegistro(data, col);
+  const tz = ss().getSpreadsheetTimeZone() || CONFIG.TZ;
   const puntosLC = ctx.puntos.map((p) => String(p).trim().toLowerCase());
   const out = [];
   for (let r = inicio; r < data.length; r++) {
@@ -356,6 +364,11 @@ function getPendientes(correo, codigo) {
     if (!ctx.esAdmin && puntosLC.indexOf(puntoCorto.toLowerCase()) < 0) continue;
     const obj = {};
     COLS_REGISTRO.forEach((k, i) => (obj[k] = data[r][i]));
+    // Fecha/hora en formato militar (24h), con la zona horaria de la hoja.
+    obj.FechaHoraRegistro = fmtCelda(obj.FechaHoraRegistro, 'yyyy-MM-dd HH:mm:ss', tz);
+    obj.HoraLlegada = fmtCelda(obj.HoraLlegada, 'HH:mm:ss', tz);
+    obj.HoraSalida = fmtCelda(obj.HoraSalida, 'HH:mm:ss', tz);
+    obj.FechaHoraDecision = fmtCelda(obj.FechaHoraDecision, 'yyyy-MM-dd HH:mm:ss', tz);
     obj._fila = r + 1;
     out.push(obj);
   }
