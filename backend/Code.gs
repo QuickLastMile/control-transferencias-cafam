@@ -28,8 +28,8 @@ const CONFIG = {
   HOJA_BITACORA: 'bitacora',
 
   // Token compartido entre la app del mensajero y el backend.
-  // CAMBIA por una cadena larga y aleatoria propia.
-  TOKEN: 'QK-CAMBIA-ESTE-TOKEN-1234567890',
+  // DEBE coincidir EXACTAMENTE con TOKEN en assets/config.js.
+  TOKEN: 'QK-TRANSFERENCIAS-1234567890',
 
   // Correos ADMIN: ven y aprueban TODOS los puntos.
   // Los regentes de cada punto se autorizan SOLOS con la columna CORREO de la hoja
@@ -112,8 +112,8 @@ function buscarCedula(cedula) {
   cedula = String(cedula || '').replace(/\D/g, '');
   if (!cedula) return { ok: false, error: 'Cédula vacía.' };
 
-  const sh = ss().getSheetByName(CONFIG.HOJA_COLAB);
-  if (!sh) return { ok: false, error: 'No existe la hoja de colaboradores.' };
+  const sh = hojaColaboradores();
+  if (!sh) return { ok: false, error: 'No encuentro la hoja de colaboradores (nómina).' };
 
   const data = sh.getDataRange().getValues();
   const head = data[0].map((h) => String(h).trim().toUpperCase());
@@ -352,6 +352,34 @@ function decidir(id, decision, motivo) {
 //  UTILIDADES
 // ----------------------------------------------------------------------------
 function ss() { return SpreadsheetApp.openById(CONFIG.SHEET_ID); }
+
+// ¿La primera fila de la hoja tiene una columna de cédula reconocible?
+function tieneColCedula(sh) {
+  try {
+    if (sh.getLastColumn() < 1) return false;
+    const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+      .map((h) => String(h).trim().toUpperCase());
+    return idxAny(head, ['CLIENTID', 'CEDULA', 'CÉDULA', 'DOCUMENTO']) >= 0;
+  } catch (e) { return false; }
+}
+
+// Devuelve la hoja de nómina: usa CONFIG.HOJA_COLAB si sirve; si no, la
+// autodetecta (primera hoja con columna de cédula), excluyendo las hojas
+// del sistema. Así 'Hoja 1' mal configurada no rompe la búsqueda.
+function hojaColaboradores() {
+  const pref = ss().getSheetByName(CONFIG.HOJA_COLAB);
+  if (pref && tieneColCedula(pref)) return pref;
+  const excl = [CONFIG.HOJA_DROG, CONFIG.HOJA_MONTADAS, CONFIG.HOJA_REGISTRO, CONFIG.HOJA_BITACORA]
+    .map((n) => String(n).toLowerCase());
+  const hojas = ss().getSheets();
+  for (let i = 0; i < hojas.length; i++) {
+    const nom = hojas[i].getName().toLowerCase();
+    if (excl.indexOf(nom) >= 0) continue;
+    if (/drogueria|montad|registro|bitacora/.test(nom)) continue;
+    if (tieneColCedula(hojas[i])) return hojas[i];
+  }
+  return pref || null;
+}
 
 // Encuentra la hoja de drogerías sin importar si es singular o plural.
 function hojaDrogueria() {
