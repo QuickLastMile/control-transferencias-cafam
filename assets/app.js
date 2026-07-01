@@ -181,8 +181,21 @@ async function reverseGeocode(lat, lng) {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
     const res = await fetch(url, { headers: { "Accept-Language": "es" } });
     const j = await res.json();
-    return j.display_name || "";
+    return direccionCorta(j.address) || j.display_name || "";
   } catch (e) { return ""; }
+}
+
+// Arma una dirección corta: calle · localidad · ciudad (sin país, código postal, etc.).
+function direccionCorta(a) {
+  if (!a) return "";
+  const calle = [a.road, a.house_number].filter(Boolean).join(" ");
+  const localidad = a.neighbourhood || a.suburb || a.city_district || a.borough || a.quarter || "";
+  const ciudad = a.city || a.town || a.village || a.municipality || a.county || "";
+  const partes = [];
+  if (calle) partes.push(calle);
+  if (localidad && localidad !== ciudad) partes.push(localidad);
+  if (ciudad) partes.push(ciudad);
+  return partes.join(", ");
 }
 
 function capturarFoto() {

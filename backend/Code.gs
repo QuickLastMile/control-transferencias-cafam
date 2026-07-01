@@ -51,9 +51,10 @@ const CONFIG = {
 };
 
 // Encabezados de la hoja registro (orden de columnas).
+// Punto = un solo campo (antes se repetía en PuntoCorto/PuntoPlataforma).
 const COLS_REGISTRO = [
   'ID', 'FechaHoraRegistro', 'Cedula', 'Nombre', 'Centro',
-  'PuntoCorto', 'PuntoPlataforma', 'NumeroGuia', 'Tipo',
+  'Punto', 'NumeroGuia', 'Tipo',
   'HoraLlegada', 'HoraSalida', 'GPS_Lat', 'GPS_Lng', 'Direccion',
   'FotoURL', 'CruceSmartQuick', 'Estado', 'MotivoRechazo',
   'RegenteEmail', 'FechaHoraDecision',
@@ -203,8 +204,8 @@ function registrar(body) {
   if (!emp.ok) return { ok: false, error: emp.error };
 
   const sh = hojaRegistro();
-  const id = 'REG-' + Utilities.formatDate(new Date(), CONFIG.TZ, 'yyyyMMdd-HHmmss') +
-    '-' + Math.floor(Math.random() * 1000);
+  // ID corto y legible: aammdd-HHmmss (ej. 260630-212842).
+  const id = Utilities.formatDate(new Date(), CONFIG.TZ, 'yyMMdd-HHmmss');
   const ahora = ahoraStr();
 
   // Cruce con Smart Quick
@@ -222,8 +223,7 @@ function registrar(body) {
     Cedula: cedula,
     Nombre: emp.nombre,
     Centro: emp.centro,
-    PuntoCorto: body.puntoCorto || '',
-    PuntoPlataforma: body.puntoPlataforma || '',
+    Punto: body.puntoCorto || '',
     NumeroGuia: guia,
     Tipo: body.tipo || '',
     HoraLlegada: body.horaLlegada || '',
@@ -352,7 +352,7 @@ function getPendientes(correo, codigo) {
     if (!data[r][col.ID]) continue;
     const estado = String(data[r][col.Estado] || '').trim().toLowerCase();
     if (estado && estado !== 'pendiente') continue; // vacío = se trata como pendiente
-    const puntoCorto = String(data[r][col.PuntoCorto] || '').trim();
+    const puntoCorto = String(data[r][col.Punto] || '').trim();
     if (!ctx.esAdmin && puntosLC.indexOf(puntoCorto.toLowerCase()) < 0) continue;
     const obj = {};
     COLS_REGISTRO.forEach((k, i) => (obj[k] = data[r][i]));
@@ -374,7 +374,7 @@ function decidir(correo, codigo, id, decision, motivo) {
   for (let r = inicio; r < data.length; r++) {
     if (String(data[r][col.ID]) === String(id)) {
       // Un regente solo decide sobre su(s) punto(s); el admin sobre todos.
-      const puntoCorto = String(data[r][col.PuntoCorto] || '').trim().toLowerCase();
+      const puntoCorto = String(data[r][col.Punto] || '').trim().toLowerCase();
       if (!ctx.esAdmin && puntosLC.indexOf(puntoCorto) < 0) {
         throw new Error('No autorizado para el punto de este registro.');
       }
@@ -492,6 +492,20 @@ function bitacora(accion, idReg, actor, detalle) {
     sh.setFrozenRows(1);
   }
   sh.appendRow([ahoraStr(), accion, idReg, actor, detalle]);
+}
+
+/**
+ * Ejecuta UNA vez desde el editor para poner los encabezados a la hoja registro.
+ * OJO: borra las filas de prueba existentes (arranca la hoja limpia con títulos).
+ */
+function reiniciarHojaRegistro() {
+  let sh = sheetCI(CONFIG.HOJA_REGISTRO);
+  if (!sh) sh = ss().insertSheet(CONFIG.HOJA_REGISTRO);
+  sh.clear();
+  sh.appendRow(COLS_REGISTRO);
+  sh.setFrozenRows(1);
+  sh.getRange(1, 1, 1, COLS_REGISTRO.length).setFontWeight('bold').setBackground('#103A6B').setFontColor('#FFFFFF');
+  Logger.log('Hoja "%s" reiniciada con encabezados.', sh.getName());
 }
 
 /** Ejecuta una vez desde el editor para crear hojas y autorizar permisos. */
