@@ -115,7 +115,18 @@
   </main>
 
   <script>
+    var API = '<?= API_URL ?>';
+    var TOKEN = '<?= TOKEN ?>';
     var CRED = { correo: '', codigo: '' };
+
+    function apiGet(params) {
+      var qs = new URLSearchParams(Object.assign({ token: TOKEN }, params)).toString();
+      return fetch(API + '?' + qs).then(function (r) { return r.json(); });
+    }
+    function apiPost(obj) {
+      return fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ token: TOKEN }, obj)) })
+        .then(function (r) { return r.json(); });
+    }
 
     function ingresar() {
       var correo = document.getElementById('in-correo').value.trim();
@@ -125,20 +136,19 @@
       msg.innerHTML = '';
       if (!correo || !codigo) { msg.innerHTML = '<div class="warn">Escribe correo y código.</div>'; return; }
       btn.disabled = true; btn.textContent = 'Verificando…';
-      CRED.correo = correo; CRED.codigo = codigo;
-      google.script.run
-        .withSuccessHandler(function (data) {
+      apiGet({ action: 'pendientes', correo: correo, codigo: codigo })
+        .then(function (data) {
+          btn.disabled = false; btn.textContent = 'Ingresar';
+          if (!data.ok) { msg.innerHTML = '<div class="warn">' + (data.error || 'No autorizado.') + '</div>'; return; }
+          CRED.correo = correo; CRED.codigo = codigo;
           try { sessionStorage.setItem('qk_reg', JSON.stringify(CRED)); } catch (e) {}
           mostrarPanel();
           render(data);
-          btn.disabled = false; btn.textContent = 'Ingresar';
         })
-        .withFailureHandler(function (e) {
-          CRED = { correo: '', codigo: '' };
-          msg.innerHTML = '<div class="warn">' + e.message + '</div>';
+        .catch(function () {
           btn.disabled = false; btn.textContent = 'Ingresar';
-        })
-        .getPendientes(correo, codigo);
+          msg.innerHTML = '<div class="warn">Error de conexión con el servidor.</div>';
+        });
     }
 
     function salir() {
@@ -160,13 +170,14 @@
     function cargar() {
       if (!CRED.correo) { salir(); return; }
       document.getElementById('lista').innerHTML = '<div class="loading">Cargando…</div>';
-      google.script.run
-        .withSuccessHandler(render)
-        .withFailureHandler(function (e) {
-          document.getElementById('lista').innerHTML =
-            '<div class="warn">' + e.message + '</div>';
+      apiGet({ action: 'pendientes', correo: CRED.correo, codigo: CRED.codigo })
+        .then(function (data) {
+          if (!data.ok) { document.getElementById('lista').innerHTML = '<div class="warn">' + (data.error || 'No autorizado.') + '</div>'; return; }
+          render(data);
         })
-        .getPendientes(CRED.correo, CRED.codigo);
+        .catch(function () {
+          document.getElementById('lista').innerHTML = '<div class="warn">Error de conexión con el servidor.</div>';
+        });
     }
 
     function render(data) {
@@ -222,10 +233,12 @@
       if (!CRED.correo) { salir(); return; }
       var card = document.getElementById('c_' + id);
       if (card) card.style.opacity = '.5';
-      google.script.run
-        .withSuccessHandler(function () { if (card) card.remove(); cargar(); })
-        .withFailureHandler(function (e) { alert(e.message); if (card) card.style.opacity = '1'; })
-        .decidir(CRED.correo, CRED.codigo, id, decision, motivo);
+      apiPost({ action: 'decidir', correo: CRED.correo, codigo: CRED.codigo, id: id, decision: decision, motivo: motivo })
+        .then(function (res) {
+          if (!res.ok) { alert(res.error || 'No se pudo procesar.'); if (card) card.style.opacity = '1'; return; }
+          if (card) card.remove(); cargar();
+        })
+        .catch(function () { alert('Error de conexión con el servidor.'); if (card) card.style.opacity = '1'; });
     }
 
     // Al abrir: si hay una sesión guardada (misma pestaña), reingresa solo.

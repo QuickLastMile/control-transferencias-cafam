@@ -65,15 +65,17 @@ const COLS_BITACORA = ['FechaHora', 'Accion', 'ID_Registro', 'Actor', 'Detalle']
 // ----------------------------------------------------------------------------
 function doGet(e) {
   const p = (e && e.parameter) || {};
-  // Panel del regente (HTML servido por Apps Script, con login Google)
+  // Panel del regente (HTML servido por Apps Script; login propio por correo+código)
   if (p.view === 'regente') {
-    return HtmlService.createTemplateFromFile('Regente')
-      .evaluate()
+    const t = HtmlService.createTemplateFromFile('Regente');
+    t.API_URL = getExecUrl();
+    t.TOKEN = CONFIG.TOKEN;
+    return t.evaluate()
       .setTitle('Quick · Panel del Regente')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
-  // API de lectura para la app del mensajero
+  // API de lectura (mensajero y panel del regente)
   try {
     if (p.action === 'buscarCedula') {
       requireToken(p.token);
@@ -82,6 +84,10 @@ function doGet(e) {
     if (p.action === 'puntos') {
       requireToken(p.token);
       return json({ ok: true, puntos: getPuntos() });
+    }
+    if (p.action === 'pendientes') {
+      requireToken(p.token);
+      return json(Object.assign({ ok: true }, getPendientes(p.correo, p.codigo)));
     }
     if (p.action === 'ping') {
       return json({ ok: true, msg: 'backend activo' });
@@ -92,6 +98,11 @@ function doGet(e) {
   }
 }
 
+// URL /exec de esta implementación (para que el panel del regente llame a la API).
+function getExecUrl() {
+  try { return ScriptApp.getService().getUrl() || ''; } catch (e) { return ''; }
+}
+
 function doPost(e) {
   try {
     // El frontend envía text/plain para evitar preflight CORS.
@@ -99,6 +110,9 @@ function doPost(e) {
     requireToken(body.token);
     if (body.action === 'registrar') {
       return json(registrar(body));
+    }
+    if (body.action === 'decidir') {
+      return json(Object.assign({ ok: true }, decidir(body.correo, body.codigo, body.id, body.decision, body.motivo)));
     }
     return json({ ok: false, error: 'accion no reconocida' });
   } catch (err) {
