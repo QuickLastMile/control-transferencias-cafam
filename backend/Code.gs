@@ -140,15 +140,29 @@ function getPuntos() {
   const sh = hojaDrogueria();
   if (!sh) return [];
   const data = sh.getDataRange().getValues();
+  if (!data.length) return [];
+
   const head = data[0].map((h) => String(h).trim().toUpperCase());
-  const iCorto = idxAny(head, ['DROGUERIA NOMBRE CORTO', 'NOMBRE CORTO']);
+  let iCorto = idxAny(head, ['DROGUERIA NOMBRE CORTO', 'NOMBRE CORTO', 'PUNTO DE VENTA', 'PUNTO', 'DROGUERIA', 'DROGUERIAS']);
   const iPlat = idxAny(head, ['FARMACIA PLATAFORMA', 'PLATAFORMA']);
+
+  // Si no se reconoce el encabezado, los puntos están en la columna A (índice 0).
+  // Detectamos si la primera fila es un título o ya es un dato para no perderlo.
+  let inicio = 1;
+  if (iCorto < 0) {
+    iCorto = 0;
+    const pareceHeader = head.some((h) => /DROGUER|NOMBRE|PUNTO|PLATAFORMA|CORREO|REGENTE|ENCARGAD/.test(h));
+    inicio = pareceHeader ? 1 : 0;
+  }
+
   const out = [];
   const vistos = {};
-  for (let r = 1; r < data.length; r++) {
-    const corto = iCorto >= 0 ? String(data[r][iCorto]).trim() : '';
-    if (!corto || vistos[corto]) continue;
-    vistos[corto] = true;
+  for (let r = inicio; r < data.length; r++) {
+    const corto = String(data[r][iCorto]).trim();
+    if (!corto) continue;
+    const clave = corto.toUpperCase();
+    if (vistos[clave]) continue;
+    vistos[clave] = true;
     out.push({ corto: corto, plataforma: iPlat >= 0 ? String(data[r][iPlat]).trim() : '' });
   }
   return out.sort((a, b) => a.corto.localeCompare(b.corto));
