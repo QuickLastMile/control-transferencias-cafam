@@ -315,17 +315,33 @@ function validarRegente(correo, codigo) {
   return { email: correo, esAdmin: false, puntos: puntos, encargado: encargado, autorizado: true };
 }
 
+// Índice de cada columna del registro según COLS_REGISTRO (orden fijo de escritura).
+function colsRegistro() {
+  const col = {};
+  COLS_REGISTRO.forEach((k, i) => (col[k] = i));
+  return col;
+}
+// Fila donde empiezan los datos (0 si la hoja no tiene encabezados).
+function inicioDatosRegistro(data, col) {
+  return (data.length && String(data[0][col.ID]).trim().toUpperCase() === 'ID') ? 1 : 0;
+}
+
 function getPendientes(correo, codigo) {
   const ctx = validarRegente(correo, codigo);
   const sh = hojaRegistro();
   const data = sh.getDataRange().getValues();
-  const head = data[0];
+  const col = colsRegistro();
+  const inicio = inicioDatosRegistro(data, col);
+  const puntosLC = ctx.puntos.map((p) => String(p).trim().toLowerCase());
   const out = [];
-  for (let r = 1; r < data.length; r++) {
+  for (let r = inicio; r < data.length; r++) {
+    if (!data[r][col.ID]) continue;
+    const estado = String(data[r][col.Estado] || '').trim().toLowerCase();
+    if (estado && estado !== 'pendiente') continue; // vacío = se trata como pendiente
+    const puntoCorto = String(data[r][col.PuntoCorto] || '').trim();
+    if (!ctx.esAdmin && puntosLC.indexOf(puntoCorto.toLowerCase()) < 0) continue;
     const obj = {};
-    head.forEach((h, i) => (obj[h] = data[r][i]));
-    if (String(obj.Estado).toLowerCase() !== 'pendiente') continue;
-    if (!ctx.esAdmin && ctx.puntos.indexOf(String(obj.PuntoCorto)) < 0) continue;
+    COLS_REGISTRO.forEach((k, i) => (obj[k] = data[r][i]));
     obj._fila = r + 1;
     out.push(obj);
   }
@@ -337,31 +353,28 @@ function decidir(correo, codigo, id, decision, motivo) {
   const email = ctx.email;
   const sh = hojaRegistro();
   const data = sh.getDataRange().getValues();
-  const head = data[0];
-  const iID = head.indexOf('ID');
-  const iEstado = head.indexOf('Estado');
-  const iMotivo = head.indexOf('MotivoRechazo');
-  const iEmail = head.indexOf('RegenteEmail');
-  const iFecha = head.indexOf('FechaHoraDecision');
-  const iPunto = head.indexOf('PuntoCorto');
+  const col = colsRegistro();
+  const inicio = inicioDatosRegistro(data, col);
+  const puntosLC = ctx.puntos.map((p) => String(p).trim().toLowerCase());
 
-  for (let r = 1; r < data.length; r++) {
-    if (String(data[r][iID]) === String(id)) {
+  for (let r = inicio; r < data.length; r++) {
+    if (String(data[r][col.ID]) === String(id)) {
       // Un regente solo decide sobre su(s) punto(s); el admin sobre todos.
-      if (!ctx.esAdmin && ctx.puntos.indexOf(String(data[r][iPunto])) < 0) {
+      const puntoCorto = String(data[r][col.PuntoCorto] || '').trim().toLowerCase();
+      if (!ctx.esAdmin && puntosLC.indexOf(puntoCorto) < 0) {
         throw new Error('No autorizado para el punto de este registro.');
       }
-      const estadoActual = String(data[r][iEstado]).toLowerCase();
+      const estadoActual = String(data[r][col.Estado] || '').trim().toLowerCase();
       // INMUTABILIDAD: si ya fue decidido, no se puede cambiar.
-      if (estadoActual !== 'pendiente') {
+      if (estadoActual && estadoActual !== 'pendiente') {
         throw new Error('Este registro ya fue ' + estadoActual + ' y no se puede modificar.');
       }
-      const nuevo = decision === 'aprobar' ? 'Aprobado' : 'Rechazado';
       const fila = r + 1;
-      sh.getRange(fila, iEstado + 1).setValue(nuevo);
-      sh.getRange(fila, iEmail + 1).setValue(email);
-      sh.getRange(fila, iFecha + 1).setValue(ahoraStr());
-      if (decision === 'rechazar') sh.getRange(fila, iMotivo + 1).setValue(motivo || '');
+      const nuevo = decision === 'aprobar' ? 'Aprobado' : 'Rechazado';
+      sh.getRange(fila, col.Estado + 1).setValue(nuevo);
+      sh.getRange(fila, col.RegenteEmail + 1).setValue(email);
+      sh.getRange(fila, col.FechaHoraDecision + 1).setValue(ahoraStr());
+      if (decision === 'rechazar') sh.getRange(fila, col.MotivoRechazo + 1).setValue(motivo || '');
       bitacora(nuevo.toUpperCase(), id, email, motivo || '');
       return { ok: true, estado: nuevo };
     }
@@ -430,8 +443,18 @@ function ahoraStr() {
   return Utilities.formatDate(new Date(), CONFIG.TZ, 'yyyy-MM-dd HH:mm:ss');
 }
 
+// Busca una hoja por nombre sin importar mayúsculas/minúsculas.
+function sheetCI(nombre) {
+  const target = String(nombre).trim().toLowerCase();
+  const hojas = ss().getSheets();
+  for (let i = 0; i < hojas.length; i++) {
+    if (hojas[i].getName().trim().toLowerCase() === target) return hojas[i];
+  }
+  return null;
+}
+
 function hojaRegistro() {
-  let sh = ss().getSheetByName(CONFIG.HOJA_REGISTRO);
+  let sh = sheetCI(CONFIG.HOJA_REGISTRO);
   if (!sh) {
     sh = ss().insertSheet(CONFIG.HOJA_REGISTRO);
     sh.appendRow(COLS_REGISTRO);
